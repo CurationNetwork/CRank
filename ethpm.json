@@ -1,0 +1,18 @@
+{
+  "package_name": "dapp-rank",
+  "version": "0.0.1",
+  "description": "Dapp-rank",
+  "authors": [
+    "Smartz team"
+  ],
+  "keywords": [
+    "smartz",
+    "dapp",
+    "rank",
+    "tcr"
+  ],
+  "dependencies": {
+    "tcr": "1.1.0"
+  },
+  "license": "Apache 2.0"
+}
