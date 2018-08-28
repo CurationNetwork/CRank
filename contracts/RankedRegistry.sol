@@ -1,5 +1,4 @@
 pragma solidity ^0.4.24;
-pragma experimental ABIEncoderV2;
 
 import "openzeppelin-solidity/contracts/ownership/Ownable.sol";
 
@@ -19,8 +18,8 @@ contract RankedRegistry is Ownable /*temporary, for tests*/ {
         string metadata;
     }
 
-    mapping (bytes32 => DappMeta) dapps;
-    bytes32[] dappsIds;
+    mapping (bytes32 => DappMeta) public dapps;
+    bytes32[] public dappsIds;
 
     function addDappMetaTemp(string _name, uint _metatype, string _metadata) public onlyOwner {
         bytes32 id = keccak256(abi.encodePacked(_name, _metatype, _metadata));
