@@ -18,7 +18,12 @@ contract RankedRegistry is Ownable /*temporary, for tests*/ {
         string metadata;
     }
 
-    mapping (bytes32 => DappMeta) public dapps;
+    uint constant METATYPE_DIRECT = 1;
+    uint constant METATYPE_IPFS = 2;
+    uint constant METATYPE_EXTERNAL_CONTRACT = 3;
+
+
+    mapping(bytes32 => DappMeta) public dapps;
     bytes32[] public dappsIds;
 
     function addDappMetaTemp(string _name, uint _metatype, string _metadata) public onlyOwner {
@@ -31,5 +36,6 @@ contract RankedRegistry is Ownable /*temporary, for tests*/ {
             _metadata
         );
     }
+
 
 }
