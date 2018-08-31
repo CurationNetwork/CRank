@@ -12,7 +12,8 @@
     "tcr"
   ],
   "dependencies": {
-    "tcr": "1.1.0"
+    "plcr-revival": "1.3.0"
+
   },
   "license": "Apache 2.0"
 }
