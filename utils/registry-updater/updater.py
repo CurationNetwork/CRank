@@ -29,30 +29,39 @@ def main(arguments):
     # parser.add_argument('infile', help="Input file", type=argparse.FileType('r'))
     # parser.add_argument('-o', '--outfile', required=True, help="Output file to save JSON with parsed dapps")#, default=sys.stdout, type=argparse.FileType('w'))
     args = parser.parse_args(arguments)
-    web3 = Web3(TestRPCProvider())
+    web3 = Web3()
+    if (not web3.isConnected()):
+        print("[ERROR] Web3 is not connected. {}".format(web3))
+        return 1
 
-    registry = deploy_contract_and_get_instance(web3)
-
-    # print('get dapps by id: {}'.format(registry.getDappbyId(1)))
+    owner_account = web3.eth.accounts[0]
+    registry = deploy_contract_and_get_instance(web3, owner_account)
 
     dapps_crawler = {}
     dapps_registry = {}
     c1 = 0
-    MAX_DAPPS = 5
+    MAX_DAPPS = 50
     with open('/tmp/dapps_dict_all', 'r') as json_file:
         dapps_crawler = json.load(json_file)
         for d in dapps_crawler:
             c1 = c1 + 1
             if c1 >= MAX_DAPPS:
                 break
+
             dapp = None
+            dapp_json = None
             try:
                 dapp = process_smartz_dapp(dapps_crawler[d])
+                dapp_json = json.dumps(dapp)
+                if (len(dapp_json) > 8000): # 9-10kb is maximum for gazlimit
+                    raise ValueError("DApp JSON is too long to be stored in contract")
             except Exception as e:
                 print("[ERROR] Error processing dapp from crawler: {}".format(repr(e)))
                 continue
 
-            tx_hash = registry.functions.addDappMetaTemp(dapp['name'], 1, json.dumps(dapp)).transact()
+
+            print("[DEBUG] Uploading Dapp '{}', data size: {}".format(dapp['name'], len(dapp_json)))
+            tx_hash = registry.functions.addDappMetaTemp(dapp['name'], 1, dapp_json).transact({'from': owner_account})
             web3.eth.waitForTransactionReceipt(tx_hash)
 
     print("[DEBUG] {} dapps uploaded to contract".format(c1))
@@ -69,7 +78,7 @@ def main(arguments):
     # abi_encoded = registry.encodeABI(fn_name='addDappMetaTemp', args=[name, metatype, metadata])
     # dapp_id = web3.sha3(hexstr=abi_encoded[2:])
 
-    print("[FINISHED]")
+    print("[FINISHED] Registry contract at: {}".format(registry.address))
 
 
 # taken from crawler - the main function to validate dapp, ready for uploading into registry contract
@@ -77,7 +86,7 @@ def process_smartz_dapp(dapp):
     # copies only needed data from dapps, came from crawler
 
     result_dapp = {}
-    mandatory_fields = ('name', 'url')
+    mandatory_fields = ['name']
     for i in mandatory_fields:
         if dapp.get(i) is None:
             raise ValueError("Empty mandatory field '{}'(is None):".format(i))
@@ -107,7 +116,12 @@ def process_smartz_dapp(dapp):
 
     return result_dapp
 
-def deploy_contract_and_get_instance(web3): # web3 - web3 instance
+
+def to_32byte_hex(val):
+    return Web3.toHex(Web3.toBytes(val).rjust(32, b'\0'))
+
+def deploy_contract_and_get_instance(web3, account): # web3 - web3 instance
+
 
     ################################################################
     # [UPLOAD TO CONTRACT] - remove dublicates, combine crawled dapps
@@ -229,7 +243,7 @@ def deploy_contract_and_get_instance(web3): # web3 - web3 instance
     # Instantiate and deploy contract
     RankedRegistry = web3.eth.contract(abi=contract_interface['abi'], bytecode=contract_interface['bin'])
 
-    tx_hash = RankedRegistry.constructor().transact({'from': web3.eth.accounts[0]})
+    tx_hash = RankedRegistry.constructor().transact({'from': account})
     tx_receipt = web3.eth.waitForTransactionReceipt(tx_hash)
 
     # Get tx receipt to get contract address
