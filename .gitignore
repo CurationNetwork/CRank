@@ -61,5 +61,5 @@ typings/
 .next
 
 
-/installed_contracts/
-/build/
+installed_contracts/
+build/
