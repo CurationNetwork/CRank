@@ -11,7 +11,6 @@ import re
 import json
 
 import hashlib
-
 import os.path
 
 import web3
@@ -22,11 +21,15 @@ from web3.middleware import geth_poa_middleware
 import sha3
 from ecdsa import SigningKey, SECP256k1
 
-
 import logging
 logger = logging.getLogger('autoranker')
 
 class Autoranker(object):
+
+    # convert to uint256
+    def to_uint256(self, number):
+        return self.web3.toWei(str(number), 'wei')
+
 
     def __init__(self, config, private_key):
         self.web3 = Web3(Web3.HTTPProvider(config['eth_http_node']))
@@ -44,8 +47,19 @@ class Autoranker(object):
         self.address = self.web3.toChecksumAddress("0x{}".format(keccak.hexdigest()[24:]))
         self.tcrank = self.web3.eth.contract(address=self.web3.toChecksumAddress(config['tcrank_address']), abi=config['tcrank_abi'])
 
-    def load_dapps_info_to_contract(self):
+    def get_dapps_from_contract(self, dapps):
+        their_dapps = {}
+        for dapp_id in dapps:
+            dapp = dapps[dapp_id]
+            r = self.tcrank.functions.getItem(self.to_uint256(dapp_id)).call()
+            print(r)
+        
+    def load_dapps_info_to_contract(self, dapps):
+        print("not implemented")
+        return None
         balance_wei = self.tcrank.functions.balanceOf(self.address).call()
         balance = Web3.fromWei(balance_wei, 'ether')
         logger.debug("Init account, all transactions will be fired from address: {}, token's balance: {}".format(self.address, balance))
 
+    def push_tcrank_item(self, dapp_id, impulse):
+        pass

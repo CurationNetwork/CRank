@@ -58,8 +58,14 @@ def main(arguments):
 
     # now create autoranker object and pass contract and account to it. Any further logic must be implemented in Autoranker class
     autoranker = Autoranker(config, private_key)
-    autoranker.load_dapps_info_to_contract()
 
+    dapps = {}
+    with open("./dapps.json") as f:
+        dapps = json.load(f)
+
+    dapps = autoranker.get_dapps_from_contract(dapps)
+
+    # autoranker.load_dapps_info_to_contract(dapps)
 
 
 
