@@ -190,6 +190,7 @@ contract Ranking is StandardToken, Superuser {
         _;
     }
 
+
     /* PURE FUNCTIONS */
     function sqrt(uint x)
         public
@@ -462,6 +463,27 @@ contract Ranking is StandardToken, Superuser {
     {
         Item storage item = Items[_itemId];
         item.lastRank = _rank;
+    }
+
+    function setUnstakeSpeed(uint _speed)
+        public
+        onlySuperuser
+    {
+        initialUnstakeSpeed = _speed;
+    }
+
+    function setCommitTtl(uint _ttl)
+        public
+        onlySuperuser
+    {
+        currentCommitTtl = _ttl;
+    }
+
+    function setRevealTtl(uint _ttl)
+        public
+        onlySuperuser
+    {
+        currentRevealTtl = _ttl;
     }
 
 
