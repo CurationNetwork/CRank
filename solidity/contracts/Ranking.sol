@@ -1,12 +1,12 @@
 pragma solidity ^0.4.23;
 
-import 'zeppelin-solidity/contracts/token/ERC20/StandardToken.sol';
+import 'zeppelin-solidity/contracts/token/ERC20/PausableToken.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
 import './IVoting.sol';
 import './Admin.sol';
 
 
-contract Ranking is StandardToken, Admin {
+contract Ranking is PausableToken, Admin {
 
     using SafeMath for uint;
 
