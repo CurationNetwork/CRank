@@ -1,5 +1,3 @@
-const { ether } = require('../node_modules/zeppelin-solidity/test/helpers/ether');
-const { ethGetBalance } = require('../node_modules/zeppelin-solidity/test/helpers/web3');
 const { latestTime } = require('../node_modules/zeppelin-solidity/test/helpers/latestTime');
 const { increaseTimeTo, duration } = require('../node_modules/zeppelin-solidity/test/helpers/increaseTime');
 const { advanceBlock } = require('../node_modules/zeppelin-solidity/test/helpers/advanceToBlock');
@@ -7,121 +5,193 @@ const { expectThrow } = require('../node_modules/zeppelin-solidity/test/helpers/
 const { EVMRevert } = require('../node_modules/zeppelin-solidity/test/helpers/EVMRevert');
 
 
-const abi = require('ethereumjs-abi')
-
-
+const abi = require('ethereumjs-abi');
 const BigNumber = web3.BigNumber;
-
-const should = require('chai')
-  .use(require('chai-bignumber')(BigNumber))
-  .should();
+const chai =require('chai');
+chai.use(require('chai-bignumber')(BigNumber));
+chai.use(require('chai-as-promised')); // Order is important
+chai.should();
 
 const Voting = artifacts.require('Voting');
-const Token = artifacts.require('SimpleToken');
+
 const utils = {
-createVoteHash: (vote, stake, salt) => {
-    const hash = `0x${abi.soliditySHA3(['uint', 'uint', 'uint'],
-      [vote, stake, salt]).toString('hex')}`;
-    return hash;
-  },
-  bn: (n) => {
-      return new BigNumber(n);
-  }
-}
+    createVoteHash: (vote, stake, salt) => {
+        return `0x${abi.soliditySHA3(['uint', 'uint', 'uint'], [vote, stake, salt]).toString('hex')}`;
+    },
+};
 
-contract('Voting', function([_, owner, voter1, voter2]) {
-    beforeEach(async function(){
-        await advanceBlock()
-        console.log("Deploy token");
-        this.token = await Token.new();
-        console.log("Deploy voting");
+
+contract('Voting', function(accounts) {
+    before(async function(){
+        await advanceBlock();
+
         this.voting = await Voting.new();
-        console.log("Init voting contract");
-
-        await this.voting.init(this.token.address, owner);
-        console.log("Transfer tokens")
-        await this.token.transfer(voter1, 100000000);
-        await this.token.transfer(voter2, 100000000);
-        await this.token.approve(this.voting.address, 1000000000, {from: voter1});
-        await this.token.approve(this.voting.address, 1000000000, {from: voter2});
-    })
+        await this.voting.init();
+    });
 
     describe('happy path vote', function() {
+        let commitTtl = 180;
+        let revealTtl = 180;
+        let itemId = 0;
+        let votes = [{
+            direction: 0,
+            stake: 1000,
+            salt: Math.random() * 1000 | 0,
+            voter: accounts[2]
+        }, {
+            direction: 1,
+            stake: 500,
+            salt: Math.random() * 1000 | 0,
+            voter: accounts[3]
+        }];
+
+        let startTime = null;
+        let pollId = null;
+
         it('start poll', async function() {
-            var currentTime = await latestTime();
-            console.log("Starting poll");
-            const pollId = await this.voting.startPoll.call(0, 1000, 2000, 100, 1000, 1000);
+            pollId = await this.voting.startPoll.call(itemId, commitTtl, revealTtl);
+            await this.voting.startPoll(0, 180, 180);
+            startTime = await latestTime();
+        });
 
-            await this.voting.startPoll(0, 1000, 2000, 100, 1000, 1000);
-            await increaseTimeTo(currentTime + duration.seconds(100));
+        it('exists check', async function () {
+            await this.voting.pollExists(pollId).should.eventually.be.equal(true);
+        });
 
-            pollId.should.be.bignumber.equal(1);
-            
-            const pollExists = await this.voting.pollExists.call(new BigNumber(1));
-            pollExists.should.be.equal(true);
+        it('commits', async function () {
+            let hash1 = utils.createVoteHash(votes[0].direction, votes[0].stake, votes[0].salt);
+            let hash2 = utils.createVoteHash(votes[1].direction, votes[1].stake, votes[1].salt);
 
-            const pollExpired = await this.voting.isExpired.call(currentTime + duration.seconds(1000));
-            pollExpired.should.be.equal(false);
+            await this.voting.commitVote(pollId, hash1, votes[0].voter);
+            await this.voting.commitVote(pollId, hash2, votes[1].voter);
+        });
 
-            var salt = 0;
-            var secretVoter1 = utils.createVoteHash(1, 10000, salt);
-            var secretVoter2 = utils.createVoteHash(0, 1000, salt);
-           
-            console.log(`Commit first vote ${secretVoter1}`);
-            await this.voting.commitVote(utils.bn(pollId), secretVoter1, voter1);
-            console.log(`Commit second vote ${secretVoter2}`);
-            await this.voting.commitVote(utils.bn(pollId), secretVoter2, voter2);
+        it('reveals', async function () {
+            await increaseTimeTo(startTime + duration.seconds(commitTtl + 1));
 
-            await increaseTimeTo(currentTime + duration.seconds(1001));
+            await this.voting.revealVote(pollId, votes[0].direction, votes[0].stake, votes[0].salt, votes[0].voter);
+            await this.voting.revealVote(pollId, votes[1].direction, votes[1].stake, votes[1].salt, votes[1].voter);
+        });
 
-            console.log(`Reveal first vote ${secretVoter1}`);
+        it('results', async function () {
+            await increaseTimeTo(startTime + duration.seconds(commitTtl + revealTtl + 1));
 
-            await this.voting.revealVote(utils.bn(pollId), utils.bn(1), utils.bn(10000), utils.bn(salt),  voter1);
-            console.log(`Reveal second vote ${secretVoter2}`);
+            await this.voting.result.call(pollId).should.eventually.be.bignumber.equal(0);
 
-            await this.voting.revealVote(utils.bn(pollId), utils.bn(0), utils.bn(1000), utils.bn(salt), voter2);
+            await this.voting.getOverallStake.call(pollId).should.eventually.be.bignumber.equal(votes[0].stake + votes[1].stake);
 
-            await increaseTimeTo(currentTime + duration.seconds(4001));
-            console.log("Try get result");
-            var result = await this.voting.result.call(utils.bn(pollId));
+            let result = await this.voting.getPollResult.call(pollId);
+            result[0].toString().should.be.equal('500');
+            result[1].toString().should.be.equal('1000');
 
-            result.should.be.bignumber.equal(1);
-            console.log("Withdraw stake");
-            var bonus = await this.voting.withdrawStake.call(utils.bn(pollId), voter1, utils.bn(10000));
-            var prize = await this.voting.getWinnerPrize.call(utils.bn(pollId), voter1);
-            prize[0].should.be.bignumber.equal(1181);
-            prize[1].should.be.bignumber.equal(909);
-            prize[2].should.be.equal(true);
+            await this.voting.isWinner.call(pollId, votes[0].voter).should.eventually.be.equal(true);
+            await this.voting.isWinner.call(pollId, votes[1].voter).should.eventually.be.equal(false);
+        });
+    });
 
-            var loserPrize = await this.voting.getWinnerPrize.call(utils.bn(pollId), voter2);
-            loserPrize[1].should.be.bignumber.equal(0);
-            loserPrize[2].should.be.equal(false);
+    describe('commit after ttl', function () {
+        let commitTtl = 180;
+        let revealTtl = 180;
+        let itemId = 0;
+        let votes = [{
+            direction: 0,
+            stake: 1000,
+            salt: Math.random() * 1000 | 0,
+            voter: accounts[2]
+        }, {
+            direction: 1,
+            stake: 500,
+            salt: Math.random() * 1000 | 0,
+            voter: accounts[3]
+        }];
 
-           
-            bonus.should.be.bignumber.gt(0);
+        let startTime = null;
+        let pollId = null;
 
-            var balance = await this.token.balanceOf.call(voter1);
-            console.log(balance.toString());
+        it('start poll', async function() {
+            pollId = await this.voting.startPoll.call(itemId, commitTtl, revealTtl);
+            await this.voting.startPoll(0, 180, 180);
+            startTime = await latestTime();
+        });
 
-            await this.voting.withdrawStake(utils.bn(pollId), voter1, utils.bn(10000));
+        it('commit', async function () {
+            await increaseTimeTo(startTime + duration.seconds(commitTtl + 1));
+            let hash1 = utils.createVoteHash(votes[0].direction, votes[0].stake, votes[0].salt);
 
+            await expectThrow(this.voting.commitVote(pollId, hash1, votes[0].voter));
+        });
+    });
 
-            await expectThrow(
-                this.voting.withdrawStake(utils.bn(pollId), voter1, utils.bn(1)), 
-                EVMRevert
-            );
-            await this.voting.withdrawStake(utils.bn(pollId), voter2, utils.bn(1000));
+    describe('reveal after ttl', function () {
+        let commitTtl = 180;
+        let revealTtl = 180;
+        let itemId = 0;
+        let votes = [{
+            direction: 0,
+            stake: 1000,
+            salt: Math.random() * 1000 | 0,
+            voter: accounts[2]
+        }, {
+            direction: 1,
+            stake: 500,
+            salt: Math.random() * 1000 | 0,
+            voter: accounts[3]
+        }];
 
-            await expectThrow(
-                this.voting.withdrawStake(utils.bn(pollId), voter2, utils.bn(1)), 
-                EVMRevert
-            );
+        let startTime = null;
+        let pollId = null;
 
-            balance = await this.token.balanceOf.call(voter1);
-            console.log(balance.toString());
-            balance.should.be.bignumber.equal(100000081);
+        it('start poll', async function() {
+            pollId = await this.voting.startPoll.call(itemId, commitTtl, revealTtl);
+            await this.voting.startPoll(0, 180, 180);
+            startTime = await latestTime();
+        });
 
-        
-        })
-    })
-})
+        it('commit', async function () {
+            let hash1 = utils.createVoteHash(votes[0].direction, votes[0].stake, votes[0].salt);
+
+            await this.voting.commitVote(pollId, hash1, votes[0].voter);
+        });
+
+        it('reveal', async function () {
+            await increaseTimeTo(startTime + duration.seconds(commitTtl + revealTtl + 1));
+
+            await expectThrow(this.voting.revealVote(pollId, votes[0].direction, votes[0].stake, votes[0].salt, votes[0].voter));
+        });
+    });
+
+    describe('result before finish', function () {
+        let commitTtl = 180;
+        let revealTtl = 180;
+        let itemId = 0;
+        let votes = [{
+            direction: 0,
+            stake: 1000,
+            salt: Math.random() * 1000 | 0,
+            voter: accounts[2]
+        }, {
+            direction: 1,
+            stake: 500,
+            salt: Math.random() * 1000 | 0,
+            voter: accounts[3]
+        }];
+
+        let startTime = null;
+        let pollId = null;
+
+        it('start poll', async function() {
+            pollId = await this.voting.startPoll.call(itemId, commitTtl, revealTtl);
+            await this.voting.startPoll(0, 180, 180);
+            startTime = await latestTime();
+        });
+
+        it('results during commit', async function () {
+            await expectThrow(this.voting.result.call(pollId));
+        });
+
+        it('results during reveal', async function () {
+            await increaseTimeTo(startTime + duration.seconds(commitTtl + 1));
+            await expectThrow(this.voting.result.call(pollId));
+        });
+    });
+});

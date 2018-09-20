@@ -1,46 +1,37 @@
 const BigNumber = web3.BigNumber;
-const { sha3 } = require('ethereumjs-util');
 const { latestTime } = require('../node_modules/zeppelin-solidity/test/helpers/latestTime');
 const { increaseTimeTo, duration } = require('../node_modules/zeppelin-solidity/test/helpers/increaseTime');
-const abi = require('ethereumjs-abi')
+const { advanceBlock } = require('../node_modules/zeppelin-solidity/test/helpers/advanceToBlock');
+const { expectThrow } = require('../node_modules/zeppelin-solidity/test/helpers/expectThrow');
+const toWei = web3.toWei;
 
-const should = require('chai')
-  .use(require('chai-bignumber')(BigNumber))
-  .should();
+const chai =require('chai');
+chai.use(require('chai-bignumber')(BigNumber));
+chai.use(require('chai-as-promised')); // Order is important
+chai.should();
 
 
 const Voting = artifacts.require('Voting');
 const Ranking = artifacts.require('Ranking');
 
-function hash(dir, stake, salt) {
-    return `0x${abi.soliditySHA3(['uint', 'uint', 'uint'], [dir, stake, salt]).toString('hex')}`;
-}
+
+
 
 contract('Ranking', function(accounts) {
 
     let voters = accounts.slice(2, 5);
-
-    let rankingParams = [ 1, 100, 10, 10, 100, 1, 180, 180, 200 ];
+    let rankingParams = [ 1, 100, 10, 1, 10, toWei(5), 180, 180, toWei(300) ];
 
     before(async function() {
-        console.log("Deploy voting");
+        await advanceBlock();
         this.voting = await Voting.new();
-        console.log("Deploy ranking");
         this.ranking = await Ranking.new();
 
-        console.log('Voting address:', this.voting.address);
-        console.log('Ranking address:', this.ranking.address);
+        await this.ranking.transfer(voters[0], toWei(1000));
+        await this.ranking.transfer(voters[1], toWei(1000));
+        await this.ranking.transfer(voters[2], toWei(1000));
 
-        console.log('Voters:', voters);
-
-        let ts = await this.ranking.totalSupply();
-        console.log('Token total supplly:', ts.toString());
-
-        await this.ranking.transfer(voters[0], 1000);
-        await this.ranking.transfer(voters[1], 1000);
-        await this.ranking.transfer(voters[2], 1000);
-
-//        await this.ranking.balanceOf(voters[1]).should.be.bignumber.equal(10000000000);
+        await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(toWei(1000));
 
         await this.voting.init();
         await this.ranking.init(this.voting.address, ...rankingParams);
@@ -52,17 +43,10 @@ contract('Ranking', function(accounts) {
             await this.ranking.newItem('Doggy', 'Doggy');
             await this.ranking.newItem('Cyclic', 'Cyclic');
 
-            let itemIds = await this.ranking.getItems.call();
-
-            let items = [];
-            for (let i = 0; i < itemIds.length; i++)
-                items.push(await this.ranking.getItem.call(itemIds[i]));
-
-            console.log(items);
+            await this.ranking.getItems.call().length.should.be.equal(3);
         });
 
         it('voting commit', async function() {
-
             let comm1 = await this.ranking.getCommitHash(0, 10, 0);
             let comm2 = await this.ranking.getCommitHash(1, 20, 0);
             let comm3 = await this.ranking.getCommitHash(1, 201, 0);
@@ -142,4 +126,4 @@ contract('Ranking', function(accounts) {
             console.log(voters[2], 'balance:', await this.ranking.balanceOf(voters[2]));
         });
     });
-})
+});
