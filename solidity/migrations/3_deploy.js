@@ -5,9 +5,8 @@ var Faucet = artifacts.require("./Faucet.sol");
 // dynamicFeeLinearRate, dynamicFeeLinearPrecision, maxOverStakeFactor,
 // maxFixedFeeRate, maxFixedFeePrecision, unstakeSpeed,
 // currentCommitTtl, currentRevealTtl, initialAvgStake
-const rankingParams = [ 1, 100, 10, 10, 100, 1, 180, 180, 200 ];
-const totalSupply = '10000';
-
+let rankingParams = [ 1, 100, 10, 1, 10, web3.toWei(5), 180, 180, web3.toWei(300) ];
+let totalSupply = web3.toWei(100000);
 
 module.exports = async function(deployer, network, accounts) {
     let voting, ranking, faucet;
