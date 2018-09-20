@@ -86,8 +86,7 @@ contract Ranking is StandardToken, Superuser {
     }
 
     struct Item {
-        string name;
-        string description;
+        uint id;
         address owner;
         uint lastRank;
         uint balance;
@@ -95,8 +94,6 @@ contract Ranking is StandardToken, Superuser {
         uint[] movingsIds;
     }
 
-
-    uint ItemsLastId = 1;
     mapping (uint => Item) Items;
     uint[] ItemsIds;
 
@@ -167,6 +164,11 @@ contract Ranking is StandardToken, Superuser {
     /* MODIFIERS */
     modifier onlyExistItem(uint _itemId) {
         require(Items[_itemId].owner != address(0));
+        _;
+    }
+
+    modifier onlyNotExistItem(uint _itemId) {
+        require(Items[_itemId].owner == address(0));
         _;
     }
 
@@ -340,9 +342,28 @@ contract Ranking is StandardToken, Superuser {
     function getItems()
         public
         view
-        returns (uint[])
+        returns (uint[] ids)
     {
         return ItemsIds;
+    }
+
+    function getItemsWithRank()
+        public
+        view
+        returns (
+            uint[] ids,
+            uint[] ranks
+        )
+    {
+        uint[] memory _ranks = new uint[](ItemsIds.length);
+
+        for (uint i = 0; i < ItemsIds.length; i++)
+            _ranks[i] = getCurrentRank(ItemsIds[i]);
+
+        return (
+            ItemsIds,
+            _ranks
+        );
     }
 
     function getItem(uint _itemId)
@@ -350,8 +371,6 @@ contract Ranking is StandardToken, Superuser {
         view
         onlyExistItem(_itemId)
         returns (
-            string name,
-            string description,
             address owner,
             uint lastRank,
             uint balance,
@@ -361,8 +380,6 @@ contract Ranking is StandardToken, Superuser {
     {
         Item storage item = Items[_itemId];
         return (
-            item.name,
-            item.description,
             item.owner,
             item.lastRank,
             item.balance,
@@ -443,15 +460,14 @@ contract Ranking is StandardToken, Superuser {
 
 
     /* Only owner functions (only for testing period) */
-    function newItemWithRank(string _name, string _desc, uint _rank)
+    function newItemWithRank(uint _id, uint _rank)
         public
         onlySuperuser
+        onlyNotExistItem(_id)
     {
-        Item storage item = Items[ItemsLastId];
-        ItemsIds.push(ItemsLastId++);
+        Item storage item = Items[_id];
+        ItemsIds.push(_id);
 
-        item.name = _name;
-        item.description = _desc;
         item.owner = msg.sender;
         item.lastRank = _rank;
     }
@@ -488,14 +504,13 @@ contract Ranking is StandardToken, Superuser {
 
 
     /* LISTING FUNCTIONS */
-    function newItem(string _name, string _desc)
+    function newItem(uint _id, string _desc)
         public
+        onlyNotExistItem(_id)
     {
-        Item storage item = Items[ItemsLastId];
-        ItemsIds.push(ItemsLastId++);
+        Item storage item = Items[_id];
+        ItemsIds.push(_id);
 
-        item.name = _name;
-        item.description = _desc;
         item.owner = msg.sender;
     }
 
