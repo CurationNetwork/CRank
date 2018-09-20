@@ -173,15 +173,18 @@ contract Voting is IVoting {
     }
 
     function getPollResult(uint _pollId) public view returns (uint votesFor, uint votesAgainst) {
+        require(pollEnded(_pollId));
         return (pollMap[_pollId].votesFor, pollMap[_pollId].votesAgainst);
     }
 
     function getOverallStake(uint _pollId) public returns (uint) {
+        require(pollExists(_pollId));
         Poll storage poll = pollMap[_pollId];
         return poll.votesFor + poll.votesAgainst;
     }
 
     function isWinner(uint _pollId, address voter) public returns (bool) {
+        require(pollEnded(_pollId));
         Poll storage poll = pollMap[_pollId];
         uint vote = poll.voteOptions[voter] == 1? 1: 0;
 
