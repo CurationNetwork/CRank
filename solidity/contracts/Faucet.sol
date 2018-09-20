@@ -2,9 +2,9 @@ pragma solidity ^0.4.23;
 
 import 'zeppelin-solidity/contracts/token/ERC20/StandardToken.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
-import 'zeppelin-solidity/contracts/ownership/Superuser.sol';
+import './Admin.sol';
 
-contract Faucet is Superuser {
+contract Faucet is Admin {
 
     using SafeMath for uint;
 
@@ -45,6 +45,7 @@ contract Faucet is Superuser {
     {
         return lastFaucets[target];
     }
+
 
 
     function setFaucetRate(uint newRate)

@@ -1,12 +1,14 @@
-var Voting = artifacts.require("./Voting.sol");
-var Ranking = artifacts.require("./Ranking.sol");
-var Faucet = artifacts.require("./Faucet.sol");
+let Voting = artifacts.require("./Voting.sol");
+let Ranking = artifacts.require("./Ranking.sol");
+let Faucet = artifacts.require("./Faucet.sol");
 
 // dynamicFeeLinearRate, dynamicFeeLinearPrecision, maxOverStakeFactor,
 // maxFixedFeeRate, maxFixedFeePrecision, unstakeSpeed,
 // currentCommitTtl, currentRevealTtl, initialAvgStake
 let rankingParams = [ 1, 100, 10, 1, 10, web3.toWei(5), 180, 180, web3.toWei(300) ];
 let totalSupply = web3.toWei(100000);
+let faucetRate = 3600;
+let faucetSize = web3.toWei(1000);
 
 module.exports = async function(deployer, network, accounts) {
     let voting, ranking, faucet;
@@ -38,6 +40,14 @@ module.exports = async function(deployer, network, accounts) {
         return faucet.init(ranking.address);
     }).then(async function () {
         console.log('Faucet inited');
+
+        return faucet.setFaucetRate(faucetRate);
+    }).then(async function () {
+        console.log('Faucet rate');
+
+        return faucet.setFaucetSize(faucetSize);
+    }).then(async function () {
+        console.log('Faucet size');
 
         return ranking.transfer(faucet.address, totalSupply);
     }).then(async function () {

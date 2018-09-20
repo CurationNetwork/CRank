@@ -1,12 +1,12 @@
 pragma solidity ^0.4.23;
 
 import 'zeppelin-solidity/contracts/token/ERC20/StandardToken.sol';
-import 'zeppelin-solidity/contracts/ownership/Superuser.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
 import './IVoting.sol';
+import './Admin.sol';
 
 
-contract Ranking is StandardToken, Superuser {
+contract Ranking is StandardToken, Admin {
 
     using SafeMath for uint;
 
@@ -94,34 +94,34 @@ contract Ranking is StandardToken, Superuser {
         uint[] movingsIds;
     }
 
-    mapping (uint => Item) Items;
-    uint[] ItemsIds;
+    mapping (uint => Item) public Items;
+    uint[] public ItemsIds;
 
-    uint VotingsLastId = 1;
-    mapping (uint => Voting) Votings;
+    uint public VotingsLastId = 1;
+    mapping (uint => Voting) public Votings;
 
-    uint MovingsLastId = 1;
-    mapping (uint => Moving) Movings;
+    uint public MovingsLastId = 1;
+    mapping (uint => Moving) public Movings;
 
 
-    uint stakesCounter = 1;
-    uint maxRank;
-    uint avgStake;
+    uint public stakesCounter = 1;
+    uint public maxRank;
+    uint public avgStake;
 
     IVoting votingContract;
 
     /* constants */
-    uint dynamicFeeLinearRate;
-    uint dynamicFeeLinearPrecision;
-    uint maxOverStakeFactor;
+    uint public dynamicFeeLinearRate;
+    uint public dynamicFeeLinearPrecision;
+    uint public maxOverStakeFactor;
 
-    uint maxFixedFeeRate;
-    uint maxFixedFeePrecision;
+    uint public maxFixedFeeRate;
+    uint public maxFixedFeePrecision;
 
-    uint initialUnstakeSpeed;
+    uint public initialUnstakeSpeed;
 
-    uint currentCommitTtl;
-    uint currentRevealTtl;
+    uint public currentCommitTtl;
+    uint public currentRevealTtl;
 
     string public constant tokenName = "CurationToken";
     string public constant symbol = "CRN";
@@ -504,7 +504,7 @@ contract Ranking is StandardToken, Superuser {
 
 
     /* LISTING FUNCTIONS */
-    function newItem(uint _id, string _desc)
+    function newItem(uint _id)
         public
         onlyNotExistItem(_id)
     {
