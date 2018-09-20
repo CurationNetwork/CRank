@@ -63,3 +63,5 @@ typings/
 
 installed_contracts/
 build/
+
+.idea/
