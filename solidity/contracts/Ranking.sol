@@ -4,9 +4,10 @@ import 'zeppelin-solidity/contracts/token/ERC20/PausableToken.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
 import './IVoting.sol';
 import './Admin.sol';
+import './Helper.sol';
 
 
-contract Ranking is PausableToken, Admin {
+contract Ranking is PausableToken {
 
     using SafeMath for uint;
 
@@ -109,6 +110,7 @@ contract Ranking is PausableToken, Admin {
     uint public avgStake;
 
     IVoting votingContract;
+    Admin accessContract;
 
     /* constants */
     uint public dynamicFeeLinearRate;
@@ -129,7 +131,9 @@ contract Ranking is PausableToken, Admin {
 
     uint256 public constant INITIAL_SUPPLY = 100000 * (10 ** uint256(decimals));
 
-    constructor() public {
+    constructor(address accessContractAddress) public {
+        accessContract = Admin(accessContractAddress);
+
         totalSupply_ = INITIAL_SUPPLY;
         balances[msg.sender] = INITIAL_SUPPLY;
         emit Transfer(address(0), msg.sender, INITIAL_SUPPLY);
@@ -192,40 +196,14 @@ contract Ranking is PausableToken, Admin {
         _;
     }
 
-
-    /* PURE FUNCTIONS */
-    function sqrt(uint x)
-        public
-        pure
-        returns (uint y)
-    {
-        if (x == 0)
-            return 0;
-        else if (x <= 3)
-            return 1;
-
-        uint z = (x + 1) / 2;
-        y = x;
-        while (z < y) {
-            y = z;
-            z = (x / z + z) / 2;
-        }
+    modifier onlyOwner {
+        require(accessContract.isOwner(msg.sender));
+        _;
     }
 
-    function getCommitHash(uint _direction, uint _stake, uint _salt)
-        public
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encodePacked(_direction, _stake, _salt));
-    }
-
-    function calculatePrize(uint _overallPrize, uint _overallStake, uint _voterStake)
-        public
-        pure
-        returns (uint)
-    {
-        return _overallPrize.mul(_voterStake).div(_overallStake);
+    modifier onlySuperuser {
+        require(accessContract.isSuperuser(msg.sender));
+        _;
     }
 
 
@@ -290,7 +268,7 @@ contract Ranking is PausableToken, Admin {
 
         uint k = 1;
         uint kPrecision = 1;
-        uint max = sqrt(totalSupply_.sub(avgStake));
+        uint max = Helper.sqrt(totalSupply_.sub(avgStake));
         uint x = maxOverStakeFactor.mul(avgStake);
 
         if (max > x)
@@ -337,14 +315,6 @@ contract Ranking is PausableToken, Admin {
         returns (uint)
     {
         return initialUnstakeSpeed;  //TODO dynamic change
-    }
-
-    function getItems()
-        public
-        view
-        returns (uint[] ids)
-    {
-        return ItemsIds;
     }
 
     function getItemsWithRank()
@@ -460,16 +430,20 @@ contract Ranking is PausableToken, Admin {
 
 
     /* Only owner functions (only for testing period) */
-    function newItemWithRank(uint _id, uint _rank)
+    function newItemsWithRanks(uint[] _ids, uint[] _ranks)
         public
         onlySuperuser
-        onlyNotExistItem(_id)
     {
-        Item storage item = Items[_id];
-        ItemsIds.push(_id);
+        require(_ids.length == _ranks.length);
 
-        item.owner = msg.sender;
-        item.lastRank = _rank;
+        for (uint i = 0; i < _ids.length; i++) {
+            Item storage item = Items[_ids[i]];
+            require(item.owner == address(0));
+
+            ItemsIds.push(_ids[i]);
+            item.owner = msg.sender;
+            item.lastRank = _ranks[i];
+        }
     }
 
     function setItemLastRank(uint _itemId, uint _rank)
@@ -488,18 +462,12 @@ contract Ranking is PausableToken, Admin {
         initialUnstakeSpeed = _speed;
     }
 
-    function setCommitTtl(uint _ttl)
+    function setTtl(uint _commitTtl, uint _revealTtl)
         public
         onlySuperuser
     {
-        currentCommitTtl = _ttl;
-    }
-
-    function setRevealTtl(uint _ttl)
-        public
-        onlySuperuser
-    {
-        currentRevealTtl = _ttl;
+        currentCommitTtl = _commitTtl;
+        currentRevealTtl = _revealTtl;
     }
 
 
@@ -735,7 +703,7 @@ contract Ranking is PausableToken, Admin {
 
         for (uint i = 0; i < voting.votersAddresses.length; ++i) {
             if (votingContract.isWinner(voting.pollId, voting.votersAddresses[i])) {
-                uint prize = calculatePrize(voting.totalPrize,
+                uint prize = Helper.calculatePrize(voting.totalPrize,
                                             votingContract.getOverallStake(voting.pollId),
                                             voting.voters[voting.votersAddresses[i]].stake);
 

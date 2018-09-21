@@ -4,7 +4,7 @@ import 'zeppelin-solidity/contracts/token/ERC20/StandardToken.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
 import './Admin.sol';
 
-contract Faucet is Admin {
+contract Faucet {
 
     using SafeMath for uint;
 
@@ -14,13 +14,27 @@ contract Faucet is Admin {
     );
 
     StandardToken token;
+    Admin accessContract;
     mapping (address => uint) lastFaucets;
 
     uint public faucetSize;
     uint public faucetRate;
 
 
-    constructor() public {}
+    constructor(address accessContractAddress) public {
+        accessContract = Admin(accessContractAddress);
+    }
+
+    modifier onlyOwner {
+        require(accessContract.isOwner(msg.sender));
+        _;
+    }
+
+    modifier onlySuperuser {
+        require(accessContract.isSuperuser(msg.sender));
+        _;
+    }
+
 
     function init(address tokenAddress)
         public
@@ -65,7 +79,7 @@ contract Faucet is Admin {
     function faucet()
         public
     {
-        if (!isSuperuser(msg.sender)) {
+        if (!accessContract.isSuperuser(msg.sender)) {
             require(lastFaucets[msg.sender].add(faucetRate) < now, "faucet rate limit");
         }
 

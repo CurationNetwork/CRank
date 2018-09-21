@@ -5,6 +5,14 @@ import 'zeppelin-solidity/contracts/ownership/Superuser.sol';
 contract Admin is Superuser {
     constructor() public {}
 
+    function isOwner(address _owner)
+        public
+        view
+        returns (bool)
+    {
+        return owner == _owner;
+    }
+
     function addAdmin(address newAdmin)
         public
         onlyOwner

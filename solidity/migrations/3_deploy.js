@@ -1,6 +1,7 @@
 let Voting = artifacts.require("./Voting.sol");
 let Ranking = artifacts.require("./Ranking.sol");
 let Faucet = artifacts.require("./Faucet.sol");
+let Admin = artifacts.require("./Admin.sol");
 
 // dynamicFeeLinearRate, dynamicFeeLinearPrecision, maxOverStakeFactor,
 // maxFixedFeeRate, maxFixedFeePrecision, unstakeSpeed,
@@ -11,7 +12,7 @@ let faucetRate = 3600;
 let faucetSize = web3.toWei(1000);
 
 module.exports = async function(deployer, network, accounts) {
-    let voting, ranking, faucet;
+    let voting, ranking, faucet, admin;
 
     deployer.then(function() {
         return Voting.new();
@@ -19,12 +20,17 @@ module.exports = async function(deployer, network, accounts) {
         voting = instance;
         console.log('Voting:', voting.address);
 
-        return Ranking.new();
+        return Admin.new();
+    }).then(function(instance) {
+        admin = instance;
+        console.log('Admin:', admin.address);
+
+        return Ranking.new(admin.address);
     }).then(function(instance) {
         ranking = instance;
         console.log('Ranking:', ranking.address);
 
-        return Faucet.new();
+        return Faucet.new(admin.address);
     }).then(function(instance) {
         faucet = instance;
         console.log('Faucet:', faucet.address);

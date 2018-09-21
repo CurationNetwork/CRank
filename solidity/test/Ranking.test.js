@@ -13,6 +13,8 @@ chai.should();
 
 const Voting = artifacts.require('Voting');
 const Ranking = artifacts.require('Ranking');
+const Helper = artifacts.require('Helper');
+const Admin = artifacts.require('Admin');
 
 
 contract('Ranking', function(accounts) {
@@ -24,7 +26,9 @@ contract('Ranking', function(accounts) {
     before(async function() {
         await advanceBlock();
         this.voting = await Voting.new();
-        this.ranking = await Ranking.new();
+        this.helper = await Helper.new();
+        this.admin = await Admin.new();
+        this.ranking = await Ranking.new(this.admin.address);
 
         await this.ranking.transfer(voters[0], initialBalance);
         await this.ranking.transfer(voters[1], initialBalance);
@@ -40,18 +44,16 @@ contract('Ranking', function(accounts) {
         let startTime = null;
 
         it('add items', async function() {
-            await this.ranking.newItemWithRank(1, toWei(90));
-            await this.ranking.newItemWithRank(2, toWei(50));
-            await this.ranking.newItemWithRank(3, toWei(30));
+            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(50), toWei(30)]);
 
             (await this.ranking.getItemsWithRank.call())[0].length.should.be.equal(3);
             (await this.ranking.getItemsWithRank.call())[1].length.should.be.equal(3);
         });
 
         it('votes commit', async function() {
-            let comm1 = await this.ranking.getCommitHash(0, toWei(100), 1);
-            let comm2 = await this.ranking.getCommitHash(1, toWei(183), 2);
-            let comm3 = await this.ranking.getCommitHash(1, toWei(243), 3);
+            let comm1 = await this.helper.getCommitHash(0, toWei(100), 1);
+            let comm2 = await this.helper.getCommitHash(1, toWei(183), 2);
+            let comm3 = await this.helper.getCommitHash(1, toWei(243), 3);
 
             let balanceBefore1 = await this.ranking.balanceOf(voters[0]);
             let balanceBefore2 = await this.ranking.balanceOf(voters[1]);
@@ -91,13 +93,9 @@ contract('Ranking', function(accounts) {
             await this.ranking.balanceOf(voters[2]).should.eventually.be.bignumber.equal(balanceBefore3.sub(flexFee3).sub(toWei(243)).toString());
         });
 
-        /*
+
         it('finish voting', async function() {
             await increaseTimeTo(startTime + duration.seconds(361));
-
-            console.log(voters[0], 'balance:', await this.ranking.balanceOf(voters[0]));
-            console.log(voters[1], 'balance:', await this.ranking.balanceOf(voters[1]));
-            console.log(voters[2], 'balance:', await this.ranking.balanceOf(voters[2]));
 
             await this.ranking.finishVoting(2, {from: voters[0]});
 
@@ -105,7 +103,7 @@ contract('Ranking', function(accounts) {
 
             console.log('Item:', item);
 
-            let moving = await this.ranking.getMoving.call(item[6][0]);
+            let moving = await this.ranking.getMoving.call(item[4][0]);
 
             console.log('Moving:', moving);
 
@@ -124,7 +122,7 @@ contract('Ranking', function(accounts) {
             console.log(voters[1], 'balance:', await this.ranking.balanceOf(voters[2]));
         });
 
-
+        /*
         it('unstake', async function() {
             var currentTime = await latestTime();
             await increaseTimeTo(currentTime + duration.seconds(200));
@@ -136,6 +134,6 @@ contract('Ranking', function(accounts) {
             console.log(voters[1], 'balance:', await this.ranking.balanceOf(voters[1]));
             console.log(voters[2], 'balance:', await this.ranking.balanceOf(voters[2]));
         });
-        */
+         */
     });
 });

@@ -1,6 +1,7 @@
 const Voting = artifacts.require('./Voting.sol');
-const DLL = artifacts.require('dll/DLL.sol');
 const AttributeStore = artifacts.require('attrstore/AttributeStore.sol');
+const Helper = artifacts.require('./Helper.sol');
+const Ranking = artifacts.require('./Ranking.sol');
 
 module.exports = (deployer) => {
   // deploy libraries
@@ -8,5 +9,11 @@ module.exports = (deployer) => {
 
   // link libraries
   deployer.link(AttributeStore, Voting);
+
+  // deploy helper
+  deployer.deploy(Helper);
+
+  // link helper
+  deployer.link(Helper, Ranking);
 
 };

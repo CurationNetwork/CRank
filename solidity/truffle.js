@@ -5,7 +5,8 @@ module.exports = {
     development: {
       host: "localhost",
       port: 8545,
-      network_id: "*" // Match any network id
+      network_id: "*", // Match any network id
+      gas: 7007233,
     },
 
     rinkeby_infura: {
@@ -13,6 +14,7 @@ module.exports = {
         return new HDWalletProvider(process.env.INFURA_MNEMO, "https://rinkeby.infura.io/v3/" + process.env.INFURA_APIKEY)
       },
       network_id: 4,
+      gas: 7000000,
   //    gas: 4612388 // Gas limit used for deploys
     },
 
