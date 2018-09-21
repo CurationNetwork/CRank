@@ -16,6 +16,11 @@ const Ranking = artifacts.require('Ranking');
 const Helper = artifacts.require('Helper');
 const Admin = artifacts.require('Admin');
 
+const fromWei = (num) => {
+    if (typeof num === 'string' || typeof num === 'number')
+        return web3.fromWei(num);
+    return web3.fromWei(num.toString());
+};
 
 contract('Ranking', function(accounts) {
 
@@ -117,23 +122,57 @@ contract('Ranking', function(accounts) {
                 console.log('Info for ', voting[5][i], ': ', voterInfo);
             }
 
-            console.log(voters[0], 'balance:', await this.ranking.balanceOf(voters[0]));
-            console.log(voters[1], 'balance:', await this.ranking.balanceOf(voters[1]));
-            console.log(voters[1], 'balance:', await this.ranking.balanceOf(voters[2]));
+            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
         });
 
-        /*
-        it('unstake', async function() {
-            var currentTime = await latestTime();
-            await increaseTimeTo(currentTime + duration.seconds(200));
+        it('unstake after 1s', async function() {
+            await increaseTimeTo(await latestTime() + duration.seconds(1));
 
+            await this.ranking.unstake(2, {from: voters[0]});
             await this.ranking.unstake(2, {from: voters[1]});
             await this.ranking.unstake(2, {from: voters[2]});
 
-            console.log(voters[0], 'balance:', await this.ranking.balanceOf(voters[0]));
-            console.log(voters[1], 'balance:', await this.ranking.balanceOf(voters[1]));
-            console.log(voters[2], 'balance:', await this.ranking.balanceOf(voters[2]));
+            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
         });
-         */
+
+        it('unstake after 5s', async function() {
+            await increaseTimeTo(await latestTime() + duration.seconds(5));
+
+            await this.ranking.unstake(2, {from: voters[0]});
+            await this.ranking.unstake(2, {from: voters[1]});
+            await this.ranking.unstake(2, {from: voters[2]});
+
+            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+        });
+
+        it('unstake after 10s', async function() {
+            await increaseTimeTo(await latestTime() + duration.seconds(10));
+
+            await this.ranking.unstake(2, {from: voters[0]});
+            await this.ranking.unstake(2, {from: voters[1]});
+            await this.ranking.unstake(2, {from: voters[2]});
+
+            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+        });
+
+        it('unstake full', async function() {
+            await increaseTimeTo(await latestTime() + duration.seconds(1000));
+
+            await this.ranking.unstake(2, {from: voters[0]});
+            await this.ranking.unstake(2, {from: voters[1]});
+            await this.ranking.unstake(2, {from: voters[2]});
+
+            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+        });
     });
 });

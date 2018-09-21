@@ -597,7 +597,7 @@ contract Ranking is PausableToken {
                     uint forUnstake = voterInfo.stake.mul(movedDistance).div(moving.distance);
 
                     if (forUnstake > voterInfo.unstaked) {
-                        require(send(msg.sender, forUnstake));
+                        require(send(msg.sender, forUnstake - voterInfo.unstaked));
                         voterInfo.unstaked = forUnstake;
                     }
                 }
@@ -713,6 +713,7 @@ contract Ranking is PausableToken {
             else {
                 if (voting.voters[voting.votersAddresses[i]].stake > 0) {
                     require(send(voting.votersAddresses[i], voting.voters[voting.votersAddresses[i]].stake));
+                    voting.voters[voting.votersAddresses[i]].unstaked = voting.voters[voting.votersAddresses[i]].stake;
                 }
             }
         }
