@@ -31,10 +31,10 @@ from autoranker import Autoranker
 def get_config():
     config = {
         "eth_http_node": "https://rinkeby.infura.io/v3/1474ceef2da44edbac41a2efd66ee882",
-        "tcrank_address": "0xc28ab7c92be1c10ca0b06f84985be6114d4d450d",
-        "faucet_address": "0xe56919582ec032575e70075bf374b227423de674",
+        "tcrank_address": "0xa2adc9a11b232e03840601ec219e2e3d551e3dc2",
+        "faucet_address": "0x417f86bdcb99264b54f8492644bd4f3d93dbb3ee",
     }
-    with open("./tcrank.abi.json") as json_data:
+    with open("../../solidity/smartz/ranking.abi") as json_data:
         config['tcrank_abi'] = json.load(json_data)
     return config
 
@@ -56,16 +56,23 @@ def main(arguments):
     
     config = get_config()
 
-    # now create autoranker object and pass contract and account to it. Any further logic must be implemented in Autoranker class
-    autoranker = Autoranker(config, private_key)
-
-    dapps = {}
+    their_dapps = {}
     with open("./dapps.json") as f:
-        dapps = json.load(f)
+        their_dapps = json.load(f)
 
-    dapps = autoranker.get_dapps_from_contract(dapps)
+    # temp
+    dapps = {}
+    for id in their_dapps:
+        dapps[id] = { 'id': id,
+                     'name': their_dapps[id],
+                     'rank': 1
+                    }
 
-    # autoranker.load_dapps_info_to_contract(dapps)
+    # now create autoranker object and pass contract and account to it. Any further logic must be implemented in Autoranker class
+    autoranker = Autoranker(config, private_key, dapps)
+    # autoranker.load_dapps_to_contract()
+
+    autoranker.start_moving_dapps()
 
 
 
