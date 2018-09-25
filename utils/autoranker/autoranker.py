@@ -63,8 +63,8 @@ class Autoranker(object):
                      .format(self.address, self.web3.fromWei(self.eth_balance, 'ether'), self.web3.fromWei(self.crn_balance, 'ether')))
 
         self.play_params = {
-            'up_probability': 0.7, # probability to push item up or dawn
-            'max_push_stake': 12, # max voting power for pushing item
+            'up_probability': 0.8, # probability to push item up or dawn
+            'max_push_stake': 18, # max voting power for pushing item
             'accumulator': { 'simple_profit': 0,
                            }
         }
@@ -105,9 +105,13 @@ class Autoranker(object):
         return self.dapps[dapp_id]
 
 
-    def get_random_push_params(self):
+    def get_random_push_params(self, dapp_id, current_ts):
+        # generate same push params for same dapp_id in range of two minutes minute (to reconstruct reveal info)
+        seed_str = str(dapp_id) + '_' + str(current_ts - (current_ts % 120))
+        random.seed(seed_str)
         impulse = int(self.play_params['max_push_stake'] * random.uniform(0, 1)) - int(self.play_params['max_push_stake'] / 2)
         salt = int(random.randint(0,100000000)) # FIXME
+
         isup = 0
         push_force = 1
         # leave push_force == 1 if impulse == 0
@@ -118,7 +122,7 @@ class Autoranker(object):
             push_force = -1 * impulse
         
         commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt])
-        return { 'isup': isup, 'push_force': push_force, 'impulse': impulse, 'salt': salt, 'commit_hash': commit_hash }
+        return { 'isup': isup, 'push_force': push_force, 'impulse': impulse, 'salt': salt, 'commit_hash': commit_hash, 'seed_str': seed_str }
         
 
 
@@ -127,8 +131,8 @@ class Autoranker(object):
         dapp = self.get_dapp_from_contract(dapp_id)
         current_ts = int(time.time())
         # get random params for push - impulse, random salt, calculate commit hash
-        push_params = self.get_random_push_params()        
-
+        push_params = self.get_random_push_params(dapp['id'], current_ts)        
+        
         commit_ttl = 30
         reveal_ttl = 30
         voting_active = False
@@ -161,9 +165,9 @@ class Autoranker(object):
 
             actions.append({'action': 'finishVoting',
                             'params': [self.to_uint256(dapp['id'])],
-                            'wait': commit_ttl}); # FIXME - calculate
+                            'wait': 0}); # FIXME - calculate
             
-            print("DApp [{}], plan to push with impulse: {}".format(dapp['id'], push_params['impulse']))
+            print("DApp [{}], plan to push with impulse: {}, seed: {}".format(dapp['id'], push_params['impulse'], push_params['seed_str']))
         else:
             ########### ERROR #########################
             if (current_ts < start_ts): 
@@ -171,13 +175,13 @@ class Autoranker(object):
                              .format(dapp['id'], current_ts, start_ts, start_ts - current_ts))
             ######### COMMIT PHASE ##################
             elif (current_ts >= start_ts and current_ts <= (start_ts + commit_ttl)):
-
+                seconds_left = start_ts + commit_ttl - current_ts
                 print("DApp [{}], current time {} is in commit phase ({} secs left), plan full cycle"
-                      .format(dapp_id, current_ts, start_ts + commit_ttl - current_ts))
+                      .format(dapp_id, current_ts, seconds_left))
 
                 actions.append({'action': 'voteCommit',
                                 'params': [self.to_uint256(dapp['id']), push_params['commit_hash']],
-                                'wait': commit_ttl}); # FIXME - calculate
+                                'wait': seconds_left});
                 actions.append({'action': 'voteReveal',
                                 'params': [self.to_uint256(dapp['id']),                                                                                       
                                            self.to_uint256(push_params['isup']),                                                                                             
@@ -191,16 +195,15 @@ class Autoranker(object):
 
             ############ REVEAL PHASE ##################
             elif (current_ts >= (start_ts + commit_ttl) and current_ts <= (start_ts + commit_ttl + reveal_ttl)):
-
+                seconds_left = start_ts + commit_ttl + reveal_ttl - current_ts
                 print("DApp [{}], current time {} is in reveal phase ({} secs left), plan reveal cycle"
-                      .format(dapp_id, current_ts, start_ts + commit_ttl + reveal_ttl - current_ts))
-
+                      .format(dapp_id, current_ts, seconds_left))
                 actions.append({'action': 'voteReveal',
                                 'params': [self.to_uint256(dapp['id']),                                                                                       
                                            self.to_uint256(push_params['isup']),                                                                                             
                                            self.to_uint256(push_params['push_force']),                                                                                       
                                            self.to_uint256(push_params['salt'])],
-                                'wait': reveal_ttl}); # FIXME - calculate
+                                'wait': seconds_left });
 
                 actions.append({'action': 'finishVoting',
                                 'params': [self.to_uint256(dapp['id'])],
@@ -260,9 +263,12 @@ class Autoranker(object):
             except ValueError as e:
                 if (str(e.args[0]['code']) == '-32000'): # already processing tx
                     print("DApp [{}], Tx {}() already processing, wait for completion, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
-                    self.web3.eth.waitForTransactionReceipt(a['tx_hash'])
-                    print("DApp [{}], transaction {}() done, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
-                    a['completed'] = True
+                    try:
+                        self.web3.eth.waitForTransactionReceipt(a['tx_hash'])
+                        print("DApp [{}], transaction {}() done, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
+                        a['completed'] = True
+                    except Exception as e:
+                        print("DApp [{}], transaction {}(), error while waiting: {}".format(dapp['id'], a['action'], repr(e)))
                 else:
                     print("DApp [{}], error calling {}() function: {}".format(dapp['id'], a['action'], repr(e)))
             except Exception as e:
@@ -291,7 +297,7 @@ class Autoranker(object):
 
         chosen_dapps = []
         for dapp_id in self.dapps:
-            if (int(dapp_id) % 33 == 0):
+            if (int(dapp_id) % 8 == 0):
                 chosen_dapps.append(dapp_id)
 
         while n < n_dapps:
