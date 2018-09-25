@@ -83,7 +83,7 @@ class Autoranker(object):
             return None
 
         if self.dapps.get(dapp_id) is None:
-            print("Dapp {} is no present in local dapps, creating new".format(dapp_id))
+            print("DApp [{}] is not present in local dapps, creating new".format(dapp_id))
             self.dapps[dapp_id] = {'id': dapp_id, 'address': dapp[0], 'rank': dapp[1], 'balance': dapp[2], 'voting_id': dapp[3], 'movings_ids': dapp[3]}
         else:
             self.dapps[dapp_id]['address'] = dapp[0]
@@ -147,7 +147,7 @@ class Autoranker(object):
         # -----1(before voting start)---|---2(commit phase)----|---3(reveal_phase)----|----4(finish voting allowed)---------
 
         if (not voting_active):
-            print("Dapp [{}], current time {}, no active voting, plan full cycle"
+            print("DApp [{}], current time {}, no active voting, plan full cycle"
                   .format(dapp_id, current_ts))
             actions.append({'action': 'voteCommit',
                             'params': [self.to_uint256(dapp['id']), push_params['commit_hash']],
@@ -162,6 +162,8 @@ class Autoranker(object):
             actions.append({'action': 'finishVoting',
                             'params': [self.to_uint256(dapp['id'])],
                             'wait': commit_ttl}); # FIXME - calculate
+            
+            print("DApp [{}], plan to push with impulse: {}".format(dapp['id'], push_params['impulse']))
         else:
             ########### ERROR #########################
             if (current_ts < start_ts): 
@@ -170,7 +172,7 @@ class Autoranker(object):
             ######### COMMIT PHASE ##################
             elif (current_ts >= start_ts and current_ts <= (start_ts + commit_ttl)):
 
-                print("Dapp [{}], current time {} is in commit phase ({} secs left), plan full cycle"
+                print("DApp [{}], current time {} is in commit phase ({} secs left), plan full cycle"
                       .format(dapp_id, current_ts, start_ts + commit_ttl - current_ts))
 
                 actions.append({'action': 'voteCommit',
@@ -190,7 +192,7 @@ class Autoranker(object):
             ############ REVEAL PHASE ##################
             elif (current_ts >= (start_ts + commit_ttl) and current_ts <= (start_ts + commit_ttl + reveal_ttl)):
 
-                print("Dapp [{}], current time {} is in reveal phase ({} secs left), plan reveal cycle"
+                print("DApp [{}], current time {} is in reveal phase ({} secs left), plan reveal cycle"
                       .format(dapp_id, current_ts, start_ts + commit_ttl + reveal_ttl - current_ts))
 
                 actions.append({'action': 'voteReveal',
@@ -278,7 +280,7 @@ class Autoranker(object):
 
 
 
-    def start_moving_dapps(self, single_dapp_id, n_dapps=30):
+    def start_moving_dapps(self, single_dapp_id, n_dapps=50):
         print("Start to play, play_params: {}".format(repr(self.play_params)))
         n = 0
 
@@ -309,15 +311,15 @@ class Autoranker(object):
         for id, new_rank in zip(ranks[0], ranks[1]):
             dapp_id = str(id)
             if (self.dapps.get(dapp_id) is None):
-                # print("Dapp {} with rank {} not exists in self.dapps - contract and local dapps not sync".format(dapp_id, new_rank))
+                # print("DApp [{}] with rank {} not exists in self.dapps - contract and local dapps not sync".format(dapp_id, new_rank))
                 self.dapps[dapp_id]['sync'] = False
                 continue
             self.dapps[dapp_id]['sync'] = True
             if (int(self.dapps[dapp_id]['rank']) != int(new_rank)):
-                print("Dapp {} is moving, rank changed {} -> {}, updating state".format(id, self.dapps[dapp_id]['rank'], new_rank))
+                print("DApp [{}] is moving, rank changed {} -> {}, updating state".format(id, self.dapps[dapp_id]['rank'], new_rank))
                 self.dapps[dapp_id]['rank'] = new_rank
             else:
-                # print("Dapp {} rank is not changed, rank: {}".format(id, new_rank))
+                # print("DApp [{}] rank is not changed, rank: {}".format(id, new_rank))
                 pass
 
 
@@ -337,7 +339,7 @@ class Autoranker(object):
 
             existing = self.get_dapp_from_contract(dapp_id)
             if existing is not None:
-                logger.info("Dapp [{}] {}, already exists in contract, continue".format(dapp_id, dapp))
+                logger.info("DApp [{}] {}, already exists in contract, continue".format(dapp_id, dapp))
                 continue
 
             i += 1
@@ -347,7 +349,7 @@ class Autoranker(object):
                 continue
 
             # pack are full, push them
-            logger.info("Dapps ({}) adding to contract with ranks({})".format(', '.join(str(x) for x in ids_pack), ', '.join(str(x) for x in ranks_pack)))
+            logger.info("DApps ({}) adding to contract with ranks({})".format(', '.join(str(x) for x in ids_pack), ', '.join(str(x) for x in ranks_pack)))
             tx = self.tcrank.functions.newItemsWithRanks(_ids=ids_pack,
                                                          _ranks=ranks_pack).buildTransaction({
         						'gas': 6000000,
