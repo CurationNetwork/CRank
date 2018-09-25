@@ -73,6 +73,7 @@ contract Ranking is PausableToken {
         uint startTime;
         uint totalPrize;
         uint pollId;
+        uint avgStake;
 
         address[] votersAddresses;
         mapping (address => VoterInfo) voters;
@@ -255,21 +256,21 @@ contract Ranking is PausableToken {
         return maxFee.sub(maxFee.mul(dRank).div(maxRank));
     }
 
-    function getDynamicCommission(uint _stake)
+    function getDynamicCommission(uint _stake, uint _avgStake)
         public
         view
         returns (uint)
     {
-        if (_stake <= avgStake)
+        if (_stake <= _avgStake)
             return _stake.mul(dynamicFeeLinearRate).div(dynamicFeeLinearPrecision);
 
-        uint overStake = _stake.sub(avgStake);
-        uint fee = avgStake.mul(dynamicFeeLinearRate).div(dynamicFeeLinearPrecision);
+        uint overStake = _stake.sub(_avgStake);
+        uint fee = _avgStake.mul(dynamicFeeLinearRate).div(dynamicFeeLinearPrecision);
 
         uint k = 1;
         uint kPrecision = 1;
-        uint max = Helper.sqrt(totalSupply_.sub(avgStake));
-        uint x = maxOverStakeFactor.mul(avgStake);
+        uint max = Helper.sqrt(totalSupply_.sub(_avgStake));
+        uint x = maxOverStakeFactor.mul(_avgStake);
 
         if (max > x)
             k = max.div(x);
@@ -369,6 +370,7 @@ contract Ranking is PausableToken {
             uint revealTtl,
             uint startTime,
             uint totalPrize,
+            uint avgStake,
             address[] votersAddresses
         )
     {
@@ -380,6 +382,7 @@ contract Ranking is PausableToken {
             voting.revealTtl,
             voting.startTime,
             voting.totalPrize,
+            voting.avgStake,
             voting.votersAddresses
         );
     }
@@ -443,6 +446,8 @@ contract Ranking is PausableToken {
             ItemsIds.push(_ids[i]);
             item.owner = msg.sender;
             item.lastRank = _ranks[i];
+
+            avgStake = Helper.calculateNewAvgStake(avgStake, _ranks[i], stakesCounter++);
         }
     }
 
@@ -531,7 +536,7 @@ contract Ranking is PausableToken {
 
         Voting storage voting = Votings[item.votingId];
 
-        uint fee = getDynamicCommission(_itemId);
+        uint fee = getDynamicCommission(_stake, voting.avgStake);
         require(pay(msg.sender, fee.add(_stake)));
         voting.totalPrize = voting.totalPrize.add(fee);
 
@@ -541,8 +546,7 @@ contract Ranking is PausableToken {
 
         votingContract.revealVote(voting.pollId, _direction, _stake, _salt, msg.sender);
 
-        stakesCounter++;
-        avgStake = avgStake.add(_stake - 1).div(stakesCounter);
+        avgStake = Helper.calculateNewAvgStake(avgStake, _stake, stakesCounter++);
 
         emit VoteReveal(_itemId, item.votingId, msg.sender, _direction, _stake);
     }
@@ -620,6 +624,7 @@ contract Ranking is PausableToken {
         voting.unstakeSpeed = getUnstakeSpeed();
         voting.commitTtl = currentCommitTtl;
         voting.revealTtl = currentRevealTtl;
+        voting.avgStake = avgStake;
 
         voting.totalPrize = item.balance;
         item.balance = 0;

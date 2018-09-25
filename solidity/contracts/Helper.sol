@@ -40,4 +40,13 @@ library Helper {
     {
         return _overallPrize.mul(_voterStake).div(_overallStake);
     }
+
+    function calculateNewAvgStake(uint _oldAvgStake, uint _stake, uint _stakesCnt)
+        public
+        pure
+        returns (uint)
+    {
+        uint newStakesCnt = _stakesCnt.add(1);
+        return _oldAvgStake.div(newStakesCnt).mul(_stakesCnt).add(_stake.div(newStakesCnt));
+    }
 }
