@@ -26,7 +26,7 @@ contract('Ranking', function(accounts) {
 
     let voters = accounts.slice(2, 5);
     let initialBalance = toWei(1000);
-    let rankingParams = [ 1, 100, 10, 1, 10, toWei(5), 180, 180, toWei(300) ];
+    let rankingParams = [ 1, 100, 100, 1, 10, toWei(5), 180, 180, toWei(300) ];
 
     before(async function() {
         await advanceBlock();
@@ -83,9 +83,9 @@ contract('Ranking', function(accounts) {
             let balanceBefore2 = await this.ranking.balanceOf(voters[1]);
             let balanceBefore3 = await this.ranking.balanceOf(voters[2]);
 
-            let flexFee1 = await this.ranking.getDynamicCommission(1);
-            let flexFee2 = await this.ranking.getDynamicCommission(2);
-            let flexFee3 = await this.ranking.getDynamicCommission(3);
+            let flexFee1 = await this.ranking.getDynamicCommission(toWei(100));
+            let flexFee2 = await this.ranking.getDynamicCommission(toWei(183));
+            let flexFee3 = await this.ranking.getDynamicCommission(toWei(243));
 
             await increaseTimeTo(startTime + duration.seconds(181));
 
@@ -173,6 +173,25 @@ contract('Ranking', function(accounts) {
             console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
             console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
             console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+        });
+    });
+
+    describe('flex fee', function () {
+        it('add items', async function() {
+            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(50), toWei(30)]);
+        });
+
+        it('fixed commissions', async function () {
+            console.log('item 1', await this.ranking.getFixedCommission(1));
+            console.log('item 2', await this.ranking.getFixedCommission(2));
+            console.log('item 3', await this.ranking.getFixedCommission(3));
+        });
+
+        it('flex commissions', async function () {
+            console.log('for 100 tokens', await this.ranking.getDynamicCommission(toWei(100)));
+            console.log('for 150 tokens', await this.ranking.getDynamicCommission(toWei(150)));
+            console.log('for 200 tokens', await this.ranking.getDynamicCommission(toWei(200)));
+            console.log('for 250 tokens', await this.ranking.getDynamicCommission(toWei(250)));
         });
     });
 });
