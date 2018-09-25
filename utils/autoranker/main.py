@@ -30,7 +30,8 @@ from autoranker import Autoranker
 
 def get_config():
     config = {
-        "eth_http_node": "https://rinkeby.infura.io/v3/1474ceef2da44edbac41a2efd66ee882",
+        # "eth_http_node": "https://rinkeby.infura.io/v3/1474ceef2da44edbac41a2efd66ee882",
+        "eth_http_node": "http://10.100.11.24:8545",
         # "tcrank_address": "0xa2adc9a11b232e03840601ec219e2e3d551e3dc2",
         "tcrank_address": "0x92dd1421d51f7a95eb7fd59634cb0082a0999c9a",
         "faucet_address": "0x1a41d0442b0e90eb4723efbaecd1da6bb39c86a5",
@@ -52,6 +53,9 @@ def main(arguments):
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-k', '--private-key-file', required=True, help="File with private key", type=argparse.FileType('r'))
+    parser.add_argument('--random-play', action="store_true", help="begins to push dapps randomly")
+    parser.add_argument('--dapp-id', action="store", type=int, help="performs operation for selected dapp id")
+    parser.add_argument('--sync-dapps', action="store_true", help="begins to renew dapps in contract(if owner)")
 
     args = parser.parse_args(arguments)
     private_key = args.private_key_file.read().strip()
@@ -72,10 +76,17 @@ def main(arguments):
 
     # now create autoranker object and pass contract and account to it. Any further logic must be implemented in Autoranker class
     autoranker = Autoranker(config, private_key, dapps)
-    
-    # autoranker.load_dapps_to_contract()
 
-    autoranker.start_moving_dapps()
+    if (args.sync_dapps == True):
+        autoranker.load_dapps_to_contract()
+        return
+
+    if (args.random_play == True):
+        single_dapp_id = args.dapp_id
+        autoranker.start_moving_dapps(single_dapp_id)
+        return
+
+    print("Do nothing...")
 
 
 

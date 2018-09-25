@@ -14,6 +14,7 @@ import time
 
 import hashlib
 import os.path
+import sys
 
 import web3
 from web3 import Web3, HTTPProvider, TestRPCProvider
@@ -61,9 +62,9 @@ class Autoranker(object):
         logger.debug("Autoranker ready, address: {}, eth_balance: {}, CRN balance: {}"
                      .format(self.address, self.web3.fromWei(self.eth_balance, 'ether'), self.web3.fromWei(self.crn_balance, 'ether')))
 
-        self.play_state = {
-            'up_probability': 0.5, # probability to push item up or dawn
-            'max_push_stake': 5, # max voting power for pushing item
+        self.play_params = {
+            'up_probability': 0.7, # probability to push item up or dawn
+            'max_push_stake': 12, # max voting power for pushing item
             'accumulator': { 'simple_profit': 0,
                            }
         }
@@ -100,151 +101,201 @@ class Autoranker(object):
             voting_state_id = self.tcrank.functions.getVotingState(voting_id).call()
             self.dapps[dapp_id]['voting_state'] = self.voting_states[voting_state_id]
 
-        print("Working dapp:\n{}".format(json.dumps(self.dapps[dapp_id], sort_keys=True, indent=4)))
+        # print("Working dapp:\n{}".format(json.dumps(self.dapps[dapp_id], sort_keys=True, indent=4)))
         return self.dapps[dapp_id]
 
 
-    def push_selected_dapp(self, dapp_id, impulse):
-        
-        dapp = self.get_dapp_from_contract(dapp_id)
-        
-        current_ts = int(time.time())
-
-
-        # KOSTYL!
-        voting_commit_ttl = 180
-        voting_reveal_ttl = 180
-        voting_start_ts = current_ts - 10
-        if (dapp.get('voting') is not None):
-            voting_commit_ttl = dapp['voting'][2]
-            voting_reveal_ttl = dapp['voting'][3]
-            voting_start_ts = dapp['voting'][4]
-
-        if (current_ts < voting_start_ts):
-            print("Current time {} is before voting start {}: strange".format(current_ts, voting_start_ts))
-            return None
-        
-        #elif (current_ts >= (voting_start_ts + voting_commit_ttl + voting_reveal_ttl)):
-        #    print("Current time {} is too late for voting, deadline is {} ({} sec ago)"
-        #          .format(current_ts, 
-        #                  voting_start_ts + voting_commit_ttl + voting_reveal_ttl,
-        #                  current_ts - voting_start_ts - voting_commit_ttl - voting_reveal_ttl))
-        #    return None
-
-        # we're in commit or reveal phase
-        # TEMP (to ease reveal phase)
-        impulse = int((int(dapp_id) % 10) - (int(dapp_id) % 10) / 2)
-
+    def get_random_push_params(self):
+        impulse = int(self.play_params['max_push_stake'] * random.uniform(0, 1)) - int(self.play_params['max_push_stake'] / 2)
+        salt = int(random.randint(0,100000000)) # FIXME
         isup = 0
         push_force = 1
-        if (impulse >= 0):
+        # leave push_force == 1 if impulse == 0
+        if (impulse > 0):
             isup = 1
             push_force = impulse
-        else:
+        elif (impulse < 0):
             push_force = -1 * impulse
         
-        salt = int(random.randint(0,100000000)) # FIXME
-            
-        # if we can commit to voting
-        need_to_commit = False
-        if (current_ts > voting_start_ts and current_ts < voting_start_ts + voting_commit_ttl):
-            print("Current time {} is in commit phase ({} secs left), need to commit".format(current_ts, voting_start_ts + voting_commit_ttl - current_ts))
-            need_to_commit = True
-        elif (current_ts > voting_start_ts + voting_commit_ttl + voting_reveal_ttl):
-            print("Current time {} is after finished voting ({} secs ago), we need to finishVoting first".format(current_ts, current_ts - voting_start_ts - voting_commit_ttl - voting_reveal_ttl))
-            tx = self.tcrank.functions.finishVoting(self.to_uint256(dapp['id']))\
-                                       .buildTransaction({
-                                                            'gas': 7300000,
-                                                            'gasPrice': self.web3.toWei('2', 'gwei'),
-                                                            'nonce': self.web3.eth.getTransactionCount(self.address)
-                                                        })
-            signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
-            tx_hash = self.web3.eth.sendRawTransaction(signed_tx.rawTransaction)
-            print("Transaction finishVoting() sent, waiting for it...")
-            self.web3.eth.waitForTransactionReceipt(tx_hash)
-            print("Transaction finishVoting() done")
-            need_to_commit = True
-
-        # need_to_commit = False
-        # print("stop!!!!")
-        if (not need_to_commit):
-            print("No need to commit")
-            return False
-
-        print("Plan to commitVote on dapp {}, salt: {}, isup: {}, push_force: {}".format(dapp_id, salt, isup, push_force))
-        try:
-            commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt])
-            tx = self.tcrank.functions.voteCommit(self.to_uint256(dapp['id']), commit_hash)\
-                                       .buildTransaction({
-                                                            'gas': 5000000,
-                                                            'gasPrice': self.web3.toWei('3', 'gwei'),
-                                                            'nonce': self.web3.eth.getTransactionCount(self.address)
-                                                        })
-            signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
-            tx_hash = self.web3.eth.sendRawTransaction(signed_tx.rawTransaction)
-            print("Transaction voteCommit() sent, waiting for it...")
-            self.web3.eth.waitForTransactionReceipt(tx_hash)
-
-            print("Transaction voteCommit() done")
-        except Exception as e:
-            logger.error("Error calling voteCommit() function: {}".format(repr(e)))
+        commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt])
+        return { 'isup': isup, 'push_force': push_force, 'impulse': impulse, 'salt': salt, 'commit_hash': commit_hash }
         
+
+
+    def push_selected_dapp(self, dapp_id):
+        
+        dapp = self.get_dapp_from_contract(dapp_id)
         current_ts = int(time.time())
-        if (current_ts < voting_start_ts + voting_commit_ttl):
-            sleep_ts = 180 #voting_start_ts + voting_commit_ttl - current_ts
-            print("Sleeping until reveal phase begins, plan to wait {} seconds".format(sleep_ts))
-            time.sleep(sleep_ts)
+        # get random params for push - impulse, random salt, calculate commit hash
+        push_params = self.get_random_push_params()        
+
+        commit_ttl = 30
+        reveal_ttl = 30
+        voting_active = False
+
+        if (dapp.get('voting') is not None):
+            commit_ttl = dapp['voting'][2]
+            reveal_ttl = dapp['voting'][3]
+            start_ts = dapp['voting'][4]
+            voting_active = True
+        
+        if (dapp.get('voting_state') == 'finished'):
+            voting_active = False
+
+        actions = []
+        # plan actions for 4 phases
+        # -----1(before voting start)---|---2(commit phase)----|---3(reveal_phase)----|----4(finish voting allowed)---------
+
+        if (not voting_active):
+            print("Dapp [{}], current time {}, no active voting, plan full cycle"
+                  .format(dapp_id, current_ts))
+            actions.append({'action': 'voteCommit',
+                            'params': [self.to_uint256(dapp['id']), push_params['commit_hash']],
+                            'wait': commit_ttl}); # FIXME - calculate
+            actions.append({'action': 'voteReveal',
+                            'params': [self.to_uint256(dapp['id']),                                                                                       
+                                       self.to_uint256(push_params['isup']),                                                                                             
+                                       self.to_uint256(push_params['push_force']),                                                                                       
+                                       self.to_uint256(push_params['salt'])],
+                            'wait': reveal_ttl}); # FIXME - calculate
+
+            actions.append({'action': 'finishVoting',
+                            'params': [self.to_uint256(dapp['id'])],
+                            'wait': commit_ttl}); # FIXME - calculate
+        else:
+            ########### ERROR #########################
+            if (current_ts < start_ts): 
+                print("DApp [{}] Voting exists, but start time in in future, current ts: {}, voting starts at {} ({} secs after). Do nothing"
+                             .format(dapp['id'], current_ts, start_ts, start_ts - current_ts))
+            ######### COMMIT PHASE ##################
+            elif (current_ts >= start_ts and current_ts <= (start_ts + commit_ttl)):
+
+                print("Dapp [{}], current time {} is in commit phase ({} secs left), plan full cycle"
+                      .format(dapp_id, current_ts, start_ts + commit_ttl - current_ts))
+
+                actions.append({'action': 'voteCommit',
+                                'params': [self.to_uint256(dapp['id']), push_params['commit_hash']],
+                                'wait': commit_ttl}); # FIXME - calculate
+                actions.append({'action': 'voteReveal',
+                                'params': [self.to_uint256(dapp['id']),                                                                                       
+                                           self.to_uint256(push_params['isup']),                                                                                             
+                                           self.to_uint256(push_params['push_force']),                                                                                       
+                                           self.to_uint256(push_params['salt'])],
+                                'wait': reveal_ttl}); # FIXME - calculate
+
+                actions.append({'action': 'finishVoting',
+                                'params': [self.to_uint256(dapp['id'])],
+                                'wait': 0});
+
+            ############ REVEAL PHASE ##################
+            elif (current_ts >= (start_ts + commit_ttl) and current_ts <= (start_ts + commit_ttl + reveal_ttl)):
+
+                print("Dapp [{}], current time {} is in reveal phase ({} secs left), plan reveal cycle"
+                      .format(dapp_id, current_ts, start_ts + commit_ttl + reveal_ttl - current_ts))
+
+                actions.append({'action': 'voteReveal',
+                                'params': [self.to_uint256(dapp['id']),                                                                                       
+                                           self.to_uint256(push_params['isup']),                                                                                             
+                                           self.to_uint256(push_params['push_force']),                                                                                       
+                                           self.to_uint256(push_params['salt'])],
+                                'wait': reveal_ttl}); # FIXME - calculate
+
+                actions.append({'action': 'finishVoting',
+                                'params': [self.to_uint256(dapp['id'])],
+                                'wait': 0});
+            ############### FINISH PHASE #################
+            elif (current_ts > (start_ts + commit_ttl + reveal_ttl)):
+                print("DApp [{}], current time {} is after finished voting ({} secs ago), plan finish voting"
+                      .format(dapp_id, current_ts, current_ts - start_ts - commit_ttl - reveal_ttl))
+                actions.append({'action': 'finishVoting',
+                                'params': [self.to_uint256(dapp['id'])],
+                                'wait': 0});
+
+
+        ################## ACTIONS READY ########################
+        for a in actions:
             dapp = self.get_dapp_from_contract(dapp_id)
+            print("DApp [{}], performing '{}' action".format(dapp['id'], a['action']))
+            args = a.get('params', [])
+            tx = None
+
+            if (a['action'] == 'voteCommit'):
+                tx = self.tcrank.functions.voteCommit(*args)\
+                                               .buildTransaction({
+                                                                    'gas': 5000000,
+                                                                    'gasPrice': self.web3.toWei('7', 'gwei'),
+                                                                    'nonce': self.web3.eth.getTransactionCount(self.address)
+                                                                })
+
+            elif (a['action'] == 'voteReveal'):
+                tx = self.tcrank.functions.voteReveal(*args)\
+                                               .buildTransaction({
+                                                                    'gas': 6000000,
+                                                                    'gasPrice': self.web3.toWei('8', 'gwei'),
+                                                                    'nonce': self.web3.eth.getTransactionCount(self.address)
+                                                                })
+
+            elif (a['action'] == 'finishVoting'):
+                tx = self.tcrank.functions.finishVoting(*args)\
+                                               .buildTransaction({
+                                                                    'gas': 7300000,
+                                                                    'gasPrice': self.web3.toWei('9', 'gwei'),
+                                                                    'nonce': self.web3.eth.getTransactionCount(self.address)
+                                                                })
+
+            else:
+                print("DApp [{}]. Error: unknown action '{}'".format(dapp['id'], a['action']))
+                continue
 
             try:
-                commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt])
-                tx = self.tcrank.functions.voteReveal(self.to_uint256(dapp['id']),
-                                                      self.to_uint256(isup),
-                                                      self.to_uint256(push_force),
-                                                      self.to_uint256(salt))\
-                                           .buildTransaction({
-                                                                'gas': 5000000,
-                                                                'gasPrice': self.web3.toWei('3', 'gwei'),
-                                                                'nonce': self.web3.eth.getTransactionCount(self.address)
-                                                            })
                 signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
+                a['tx_hash'] = self.web3.toHex(signed_tx.get('hash'))
                 tx_hash = self.web3.eth.sendRawTransaction(signed_tx.rawTransaction)
-                logger.debug("Transaction voteReveal() sent, waiting for it...")
+                print("DApp [{}], transaction {}() sent, waiting. tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
                 self.web3.eth.waitForTransactionReceipt(tx_hash)
-                logger.debug("Transaction voteReveal() done")
+                print("DApp [{}], transaction {}() done, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
+                a['completed'] = True
+            except ValueError as e:
+                if (str(e.args[0]['code']) == '-32000'): # already processing tx
+                    print("DApp [{}], Tx {}() already processing, wait for completion, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
+                    self.web3.eth.waitForTransactionReceipt(a['tx_hash'])
+                    print("DApp [{}], transaction {}() done, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
+                    a['completed'] = True
+                else:
+                    print("DApp [{}], error calling {}() function: {}".format(dapp['id'], a['action'], repr(e)))
             except Exception as e:
-                logger.error("Error calling voteReveal() function: {}".format(repr(e)))
-                return False
- 
+                print("DApp [{}], error calling {}() function: {}".format(dapp['id'], a['action'], repr(e)))
+              
+            
+            if a.get('completed') is None:
+                print("DApp [{}], error, transaction was not executed, breakin action queue".format(dapp['id']))
+                break
+
+            print("DApp [{}], sleeping {} sec (taken from 'wait' action parameter)".format(dapp['id'], a['wait']))
+            time.sleep(a['wait'])
+
         return True
 
 
 
-    def start_moving_dapps(self):
+    def start_moving_dapps(self, single_dapp_id, n_dapps=30):
+        print("Start to play, play_params: {}".format(repr(self.play_params)))
         n = 0
-        chosen_dapps = ["1164", "1163", "1162"]
 
-        chosen_id = random.choice(chosen_dapps)
-        chosen_id = "1163"
-        # updates current state on disk
-        impulse = int(self.play_state['max_push_stake'] * random.uniform(0, 1)) - int(self.play_state['max_push_stake'] / 2)
-        # logger.debug("generated impulse: {}".format(impulse))
-        
-        dapp = self.get_dapp_from_contract(chosen_id)
-        
-        if (dapp.get('voting_state') is None):
-            print("voting state is none, begin commiting")
-            self.push_selected_dapp(chosen_id, impulse)
-        elif (dapp['voting_state'] == 'commiting'): 
-            print("voting state is 'commiting', begin commit")
-            self.push_selected_dapp(chosen_id, impulse)
-        elif (dapp['voting_state'] == 'revealing'):
-            print("voting state is 'revealing', do nothing")
-        elif (dapp['voting_state'] == 'finished'):
-            print("voting state is 'finished', push another time")
-            self.push_selected_dapp(chosen_id, impulse)
-        
-   
+        if (single_dapp_id):
+            self.push_selected_dapp(single_dapp_id)
+            return
+
+
+        chosen_dapps = []
+        for dapp_id in self.dapps:
+            if (int(dapp_id) % 33 == 0):
+                chosen_dapps.append(dapp_id)
+
+        while n < n_dapps:
+            n += 1
+            chosen_id = random.choice(chosen_dapps)
+            self.push_selected_dapp(chosen_id)
 
 
     def update_ranks_from_contract(self):
@@ -281,6 +332,9 @@ class Autoranker(object):
         i = 0
         for dapp_id in self.dapps:
             dapp = self.dapps[dapp_id]
+            if (int(dapp_id) > 100):
+                continue
+
             existing = self.get_dapp_from_contract(dapp_id)
             if existing is not None:
                 logger.info("Dapp [{}] {}, already exists in contract, continue".format(dapp_id, dapp))
@@ -309,6 +363,3 @@ class Autoranker(object):
             ranks_pack = []
 
         return None
-
-    def push_tcrank_item(self, dapp_id, impulse):
-        pass
