@@ -107,8 +107,8 @@ class Autoranker(object):
 
     def get_random_push_params(self, dapp_id, current_ts):
         # generate same push params for same dapp_id in range of two minutes minute (to reconstruct reveal info)
-        seed_str = str(dapp_id) + '_' + str(current_ts - (current_ts % 120))
-        random.seed(seed_str)
+        seed_str = str(dapp_id) + '_' + str(current_ts - (current_ts % 30))
+        # random.seed(seed_str)
         impulse = int(self.play_params['max_push_stake'] * random.uniform(0, 1)) - int(self.play_params['max_push_stake'] / 2)
         salt = int(random.randint(0,100000000)) # FIXME
 
@@ -252,6 +252,7 @@ class Autoranker(object):
                 print("DApp [{}]. Error: unknown action '{}'".format(dapp['id'], a['action']))
                 continue
 
+            tx_hash = None
             try:
                 signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
                 a['tx_hash'] = self.web3.toHex(signed_tx.get('hash'))
@@ -261,16 +262,11 @@ class Autoranker(object):
                 print("DApp [{}], transaction {}() done, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
                 a['completed'] = True
             except ValueError as e:
+                print("DApp [{}], transaction {}(), exception: {}".format(dapp['id'], a['action'], repr(e)))
                 if (str(e.args[0]['code']) == '-32000'): # already processing tx
-                    print("DApp [{}], Tx {}() already processing, wait for completion, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
-                    try:
-                        self.web3.eth.waitForTransactionReceipt(a['tx_hash'])
-                        print("DApp [{}], transaction {}() done, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
-                        a['completed'] = True
-                    except Exception as e:
-                        print("DApp [{}], transaction {}(), error while waiting: {}".format(dapp['id'], a['action'], repr(e)))
-                else:
-                    print("DApp [{}], error calling {}() function: {}".format(dapp['id'], a['action'], repr(e)))
+                    print("DApp [{}], transaction {}() is active, waiting, tx_hash: {}".format(dapp['id'], a['action'], tx_hash))
+                    self.web3.eth.waitForTransactionReceipt(tx_hash)
+                    a['completed'] = True
             except Exception as e:
                 print("DApp [{}], error calling {}() function: {}".format(dapp['id'], a['action'], repr(e)))
               
