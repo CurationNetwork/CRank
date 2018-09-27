@@ -1,4 +1,5 @@
 const HDWalletProvider = require("truffle-hdwallet-provider");
+const HDWalletProviderPK = require("truffle-hdwallet-provider-privkey");
 
 module.exports = {
   networks: {
@@ -9,9 +10,18 @@ module.exports = {
       gas: 7007233,
     },
 
+    rinkeby: {
+      network_id: 4,
+      gas: 7000000,
+      provider: function () {
+          return new HDWalletProviderPK([process.env.PRIVKEY], "http://10.100.11.24:8545")
+      },
+      from: "0x49d22f8740d6f08b3235ace9a90648b206962cbd",
+    },
+
     rinkeby_infura: {
       provider: function() {
-        return new HDWalletProvider(process.env.INFURA_MNEMO, "https://rinkeby.infura.io/v3/" + process.env.INFURA_APIKEY)
+        return new HDWalletProvider(process.env.INFURA_MNEMO, "https://rinkeby.infura.io/v5/" + process.env.INFURA_APIKEY)
       },
       network_id: 4,
       gas: 7000000,
