@@ -55,13 +55,7 @@ contract Voting is IVoting {
 
     AttributeStore.Data store;
 
-    constructor() public  {}
-
-
-    /**
-    @dev Initializer. Can only be called once.
-    */
-    function init() public {
+    constructor() public {
         pollNonce = INITIAL_POLL_NONCE;
     }
 
@@ -186,6 +180,10 @@ contract Voting is IVoting {
     function isWinner(uint _pollId, address voter) public returns (bool) {
         require(pollEnded(_pollId));
         Poll storage poll = pollMap[_pollId];
+
+        if (!poll.didReveal[voter])
+            return false;
+
         uint vote = poll.voteOptions[voter] == 1? 1: 0;
 
         if (vote == result(_pollId)) {

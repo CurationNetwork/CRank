@@ -22,30 +22,45 @@ const fromWei = (num) => {
     return web3.fromWei(num.toString());
 };
 
+async function beforeFunc() {
+    await advanceBlock();
+    this.voting = await Voting.new();
+    this.helper = await Helper.new();
+    this.admin = await Admin.new();
+    this.ranking = await Ranking.new(this.admin.address);
+
+    await this.ranking.transfer(voters[0], initialBalance);
+    await this.ranking.transfer(voters[1], initialBalance);
+    await this.ranking.transfer(voters[2], initialBalance);
+
+    await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+    await this.ranking.init(this.voting.address, ...rankingParams);
+}
+
 contract('Ranking', function(accounts) {
 
     let voters = accounts.slice(2, 5);
     let initialBalance = toWei(1000);
     let rankingParams = [ 1, 100, 100, 1, 10, toWei(5), 180, 180, toWei(300) ];
 
-    before(async function() {
-        await advanceBlock();
-        this.voting = await Voting.new();
-        this.helper = await Helper.new();
-        this.admin = await Admin.new();
-        this.ranking = await Ranking.new(this.admin.address);
-
-        await this.ranking.transfer(voters[0], initialBalance);
-        await this.ranking.transfer(voters[1], initialBalance);
-        await this.ranking.transfer(voters[2], initialBalance);
-
-        await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
-
-        await this.voting.init();
-        await this.ranking.init(this.voting.address, ...rankingParams);
-    });
-
     describe('full', function() {
+        before(async function() {
+            await advanceBlock();
+            this.voting = await Voting.new();
+            this.helper = await Helper.new();
+            this.admin = await Admin.new();
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.ranking.transfer(voters[0], initialBalance);
+            await this.ranking.transfer(voters[1], initialBalance);
+            await this.ranking.transfer(voters[2], initialBalance);
+
+            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+            await this.ranking.init(this.voting.address, ...rankingParams);
+        });
+
         let startTime = null;
 
         it('add items', async function() {
@@ -83,9 +98,13 @@ contract('Ranking', function(accounts) {
             let balanceBefore2 = await this.ranking.balanceOf(voters[1]);
             let balanceBefore3 = await this.ranking.balanceOf(voters[2]);
 
-            let flexFee1 = await this.ranking.getDynamicCommission(toWei(100));
-            let flexFee2 = await this.ranking.getDynamicCommission(toWei(183));
-            let flexFee3 = await this.ranking.getDynamicCommission(toWei(243));
+            let item = await this.ranking.getItem.call(2);
+            let voting = await this.ranking.getVoting.call(item[3]);
+            let avgStake = voting[6];
+
+            let flexFee1 = await this.ranking.getDynamicCommission(toWei(100), avgStake);
+            let flexFee2 = await this.ranking.getDynamicCommission(toWei(183), avgStake);
+            let flexFee3 = await this.ranking.getDynamicCommission(toWei(243), avgStake);
 
             await increaseTimeTo(startTime + duration.seconds(181));
 
@@ -177,7 +196,21 @@ contract('Ranking', function(accounts) {
     });
 
     describe('flex fee', function () {
-        it('add items', async function() {
+        before(async function() {
+            await advanceBlock();
+            this.voting = await Voting.new();
+            this.helper = await Helper.new();
+            this.admin = await Admin.new();
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.ranking.transfer(voters[0], initialBalance);
+            await this.ranking.transfer(voters[1], initialBalance);
+            await this.ranking.transfer(voters[2], initialBalance);
+
+            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+            await this.ranking.init(this.voting.address, ...rankingParams);
+
             await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(50), toWei(30)]);
         });
 
@@ -188,10 +221,87 @@ contract('Ranking', function(accounts) {
         });
 
         it('flex commissions', async function () {
-            console.log('for 100 tokens', await this.ranking.getDynamicCommission(toWei(100)));
-            console.log('for 150 tokens', await this.ranking.getDynamicCommission(toWei(150)));
-            console.log('for 200 tokens', await this.ranking.getDynamicCommission(toWei(200)));
-            console.log('for 250 tokens', await this.ranking.getDynamicCommission(toWei(250)));
+            let avgStake = await this.ranking.avgStake();
+
+            console.log('for 100 tokens', await this.ranking.getDynamicCommission(toWei(100), avgStake));
+            console.log('for 150 tokens', await this.ranking.getDynamicCommission(toWei(150), avgStake));
+            console.log('for 200 tokens', await this.ranking.getDynamicCommission(toWei(200), avgStake));
+            console.log('for 250 tokens', await this.ranking.getDynamicCommission(toWei(250), avgStake));
+        });
+    });
+
+    describe('finish if 1 commits & 0 reveals', function () {
+        let commitTime = null;
+
+        before(async function() {
+            await advanceBlock();
+            this.voting = await Voting.new();
+            this.helper = await Helper.new();
+            this.admin = await Admin.new();
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.ranking.transfer(voters[0], initialBalance);
+            await this.ranking.transfer(voters[1], initialBalance);
+            await this.ranking.transfer(voters[2], initialBalance);
+
+            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+            await this.ranking.init(this.voting.address, ...rankingParams);
+
+            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(50), toWei(30)]);
+        });
+
+        it('commit', async function () {
+            let comm = await this.helper.getCommitHash(0, toWei(100), 1);
+
+            await this.ranking.voteCommit(2, comm, {from: voters[0]});
+            commitTime = await latestTime();
+        });
+
+        it('finish', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(361));
+            await this.ranking.finishVoting(2, {from: voters[0]});
+        });
+    });
+
+    describe('finish if 2 commits & 1 reveals', function () {
+        let commitTime = null;
+
+        before(async function() {
+            await advanceBlock();
+            this.voting = await Voting.new();
+            this.helper = await Helper.new();
+            this.admin = await Admin.new();
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.ranking.transfer(voters[0], initialBalance);
+            await this.ranking.transfer(voters[1], initialBalance);
+            await this.ranking.transfer(voters[2], initialBalance);
+
+            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+            await this.ranking.init(this.voting.address, ...rankingParams);
+
+            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(50), toWei(30)]);
+        });
+
+        it('2 commits', async function () {
+            let comm1 = await this.helper.getCommitHash(0, toWei(100), 1);
+            let comm2 = await this.helper.getCommitHash(1, toWei(183), 2);
+
+            await this.ranking.voteCommit(2, comm1, {from: voters[0]});
+            await this.ranking.voteCommit(2, comm2, {from: voters[1]});
+            commitTime = await latestTime();
+        });
+
+        it('1 reveal', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(181));
+            await this.ranking.voteReveal(2, 0, toWei(100), 1, {from: voters[0]});
+        });
+
+        it('finish', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(361));
+            await this.ranking.finishVoting(2, {from: voters[0]});
         });
     });
 });

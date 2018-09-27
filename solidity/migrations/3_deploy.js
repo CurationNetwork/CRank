@@ -35,10 +35,6 @@ module.exports = async function(deployer, network, accounts) {
         faucet = instance;
         console.log('Faucet:', faucet.address);
 
-        return voting.init();
-    }).then(function () {
-        console.log('Voting inited');
-
         return ranking.init(voting.address, ...rankingParams);
     }).then(async function () {
         console.log('Ranking inited');
