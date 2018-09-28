@@ -130,7 +130,7 @@ contract Ranking is PausableToken {
     string public constant symbol = "CRN";
     uint8 public constant decimals = 18;
 
-    uint256 public constant INITIAL_SUPPLY = 100000 * (10 ** uint256(decimals));
+    uint256 public constant INITIAL_SUPPLY = 1000000 * (10 ** uint256(decimals));
 
     constructor(address accessContractAddress) public {
         accessContract = Admin(accessContractAddress);
