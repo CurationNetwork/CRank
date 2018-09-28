@@ -13,6 +13,7 @@ module.exports = {
     rinkeby: {
       network_id: 4,
       gas: 7000000,
+      gasPrice: 556250000000,
       provider: function () {
           return new HDWalletProviderPK([process.env.PRIVKEY], "http://10.100.11.24:8545")
       },

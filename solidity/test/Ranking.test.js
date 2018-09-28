@@ -41,8 +41,8 @@ async function beforeFunc() {
 contract('Ranking', function(accounts) {
 
     let voters = accounts.slice(2, 5);
-    let initialBalance = toWei(1000);
-    let rankingParams = [ 1, 100, 100, 1, 10, toWei(5), 180, 180, toWei(300) ];
+    let initialBalance = toWei(10000);
+    let rankingParams = [ 1, 100, 100, 1, 10, toWei(0.5), 180, 180, toWei(300) ];
 
     describe('full', function() {
         before(async function() {
@@ -125,7 +125,7 @@ contract('Ranking', function(accounts) {
 
             let item = await this.ranking.getItem.call(2);
 
-            console.log('Item:', item);
+            console.log('Item 2:', item);
 
             let moving = await this.ranking.getMoving.call(item[4][0]);
 
@@ -188,6 +188,8 @@ contract('Ranking', function(accounts) {
             await this.ranking.unstake(2, {from: voters[0]});
             await this.ranking.unstake(2, {from: voters[1]});
             await this.ranking.unstake(2, {from: voters[2]});
+
+            console.log('Item 2 rank:', fromWei(await this.ranking.getCurrentRank(2)));
 
             console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
             console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
@@ -302,6 +304,179 @@ contract('Ranking', function(accounts) {
         it('finish', async function () {
             await increaseTimeTo(commitTime + duration.seconds(361));
             await this.ranking.finishVoting(2, {from: voters[0]});
+        });
+    });
+
+
+    describe('under zero vote', function () {
+        let commitTime = null;
+
+        before(async function() {
+            await advanceBlock();
+            this.voting = await Voting.new();
+            this.helper = await Helper.new();
+            this.admin = await Admin.new();
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.ranking.transfer(voters[0], initialBalance);
+            await this.ranking.transfer(voters[1], initialBalance);
+            await this.ranking.transfer(voters[2], initialBalance);
+
+            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+            await this.ranking.init(this.voting.address, ...rankingParams);
+
+            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(53), toWei(30)]);
+        });
+
+        it('commits', async function () {
+            let comm1 = await this.helper.getCommitHash(1, toWei(100), 1);
+            let comm2 = await this.helper.getCommitHash(0, toWei(183), 2);
+
+            await this.ranking.voteCommit(2, comm1, {from: voters[0]});
+            await this.ranking.voteCommit(2, comm2, {from: voters[1]});
+            commitTime = await latestTime();
+        });
+
+        it('reveals', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(181));
+            await this.ranking.voteReveal(2, 1, toWei(100), 1, {from: voters[0]});
+            await this.ranking.voteReveal(2, 0, toWei(183), 2, {from: voters[1]});
+        });
+
+        it('finish', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(361));
+            await this.ranking.finishVoting(2, {from: voters[0]});
+
+            let finishTime = await latestTime();
+            await increaseTimeTo(finishTime + duration.seconds(5));
+            console.log('Item rank after 5s:', fromWei(await this.ranking.getCurrentRank(2)));
+
+            await increaseTimeTo(finishTime + duration.seconds(7));
+            console.log('Item rank after 7s:', fromWei(await this.ranking.getCurrentRank(2)));
+
+            await increaseTimeTo(finishTime + duration.seconds(20));
+            console.log('Item rank after 20s:', fromWei(await this.ranking.getCurrentRank(2)));
+        });
+    });
+
+
+    describe('under zero vote when already exist down moving (not to 0)', function () {
+        let commitTime = null;
+
+        before(async function() {
+            await advanceBlock();
+            this.voting = await Voting.new();
+            this.helper = await Helper.new();
+            this.admin = await Admin.new();
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.ranking.transfer(voters[0], initialBalance);
+            await this.ranking.transfer(voters[1], initialBalance);
+            await this.ranking.transfer(voters[2], initialBalance);
+
+            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+            await this.ranking.init(this.voting.address, ...rankingParams);
+
+            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(1000), toWei(30)]);
+
+            let comm1 = await this.helper.getCommitHash(0, toWei(500), 1);
+            await this.ranking.voteCommit(2, comm1, {from: voters[0]});
+            await increaseTimeTo(await latestTime() + duration.seconds(181));
+            await this.ranking.voteReveal(2, 0, toWei(500), 1, {from: voters[0]});
+            await increaseTimeTo(await latestTime() + duration.seconds(181));
+            await this.ranking.finishVoting(2, {from: voters[0]});
+        });
+
+        it('commits', async function () {
+            let comm1 = await this.helper.getCommitHash(0, toWei(200), 1);
+
+            await this.ranking.voteCommit(2, comm1, {from: voters[0]});
+            commitTime = await latestTime();
+        });
+
+        it('reveals', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(181));
+            await this.ranking.voteReveal(2, 0, toWei(200), 1, {from: voters[0]});
+        });
+
+        it('finish', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(361));
+            await this.ranking.finishVoting(2, {from: voters[0]});
+
+            let finishTime = await latestTime();
+            await increaseTimeTo(finishTime + duration.seconds(150));
+            console.log('Item rank after 150s:', fromWei(await this.ranking.getCurrentRank(2)));
+
+            await increaseTimeTo(finishTime + duration.seconds(300));
+            console.log('Item rank after 300s:', fromWei(await this.ranking.getCurrentRank(2)));
+
+            await increaseTimeTo(finishTime + duration.seconds(450));
+            console.log('Item rank after 450s:', fromWei(await this.ranking.getCurrentRank(2)));
+
+            await increaseTimeTo(finishTime + duration.seconds(2000));
+            console.log('Item rank after 2000s:', fromWei(await this.ranking.getCurrentRank(2)));
+        });
+    });
+
+
+    describe('under zero vote when already exist down moving (to 0)', function () {
+        let commitTime = null;
+
+        before(async function() {
+            await advanceBlock();
+            this.voting = await Voting.new();
+            this.helper = await Helper.new();
+            this.admin = await Admin.new();
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.ranking.transfer(voters[0], initialBalance);
+            await this.ranking.transfer(voters[1], initialBalance);
+            await this.ranking.transfer(voters[2], initialBalance);
+
+            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+            await this.ranking.init(this.voting.address, ...rankingParams);
+
+            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(1000), toWei(30)]);
+
+            let comm1 = await this.helper.getCommitHash(0, toWei(600), 1);
+            await this.ranking.voteCommit(2, comm1, {from: voters[0]});
+            await increaseTimeTo(await latestTime() + duration.seconds(181));
+            await this.ranking.voteReveal(2, 0, toWei(600), 1, {from: voters[0]});
+            await increaseTimeTo(await latestTime() + duration.seconds(181));
+            await this.ranking.finishVoting(2, {from: voters[0]});
+        });
+
+        it('commits', async function () {
+            let comm1 = await this.helper.getCommitHash(0, toWei(500), 1);
+
+            await this.ranking.voteCommit(2, comm1, {from: voters[0]});
+            commitTime = await latestTime();
+        });
+
+        it('reveals', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(181));
+            await this.ranking.voteReveal(2, 0, toWei(500), 1, {from: voters[0]});
+        });
+
+        it('finish', async function () {
+            await increaseTimeTo(commitTime + duration.seconds(361));
+            await this.ranking.finishVoting(2, {from: voters[0]});
+
+            let finishTime = await latestTime();
+            await increaseTimeTo(finishTime + duration.seconds(150));
+            console.log('Item rank after 150s:', fromWei(await this.ranking.getCurrentRank(2)));
+
+            await increaseTimeTo(finishTime + duration.seconds(300));
+            console.log('Item rank after 300s:', fromWei(await this.ranking.getCurrentRank(2)));
+
+            await increaseTimeTo(finishTime + duration.seconds(450));
+            console.log('Item rank after 450s:', fromWei(await this.ranking.getCurrentRank(2)));
+
+            await increaseTimeTo(finishTime + duration.seconds(2000));
+            console.log('Item rank after 2000s:', fromWei(await this.ranking.getCurrentRank(2)));
         });
     });
 });

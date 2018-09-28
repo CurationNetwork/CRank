@@ -280,7 +280,7 @@ contract Ranking is PausableToken {
         return fee.add(k.mul(overStake).div(kPrecision) ** 2);
     }
 
-    function getCurrentRank(uint _itemId)
+    function getRankForTimestamp(uint _itemId, uint _timestamp)
         public
         view
         onlyExistItem(_itemId)
@@ -293,7 +293,7 @@ contract Ranking is PausableToken {
         for (uint i = 0; i < item.movingsIds.length; ++i) {
             Moving storage moving = Movings[item.movingsIds[i]];
 
-            if (now.sub(moving.startTime).mul(moving.speed) >= moving.distance) {
+            if (_timestamp.sub(moving.startTime).mul(moving.speed) >= moving.distance) {
                 if (moving.direction != 0)
                     rank = rank.add(moving.distance);
                 else
@@ -301,13 +301,21 @@ contract Ranking is PausableToken {
             }
             else {
                 if (moving.direction != 0)
-                    rank = rank.add(now.sub(moving.startTime).mul(moving.speed));
+                    rank = rank.add(_timestamp.sub(moving.startTime).mul(moving.speed));
                 else
-                    rank = rank.sub(now.sub(moving.startTime).mul(moving.speed));
+                    rank = rank.sub(_timestamp.sub(moving.startTime).mul(moving.speed));
             }
         }
 
         return rank;
+    }
+
+    function getCurrentRank(uint _itemId)
+        public
+        view
+        returns (uint)
+    {
+        return getRankForTimestamp(_itemId, now);
     }
 
     function getUnstakeSpeed()
@@ -571,6 +579,10 @@ contract Ranking is PausableToken {
         uint _direction = votesUp > votesDown ? 1 : 0;
         uint distance = votesUp > votesDown ? votesUp - votesDown : votesDown - votesUp;
 
+        if (_direction == 0) {
+            distance = distanceWithCheckUnderZero(_itemId, distance, voting.unstakeSpeed);
+        }
+
         uint movingId = newMoving(now, voting.unstakeSpeed, distance, _direction, item.votingId);
         item.movingsIds.push(movingId);
         item.votingId = 0;
@@ -722,6 +734,37 @@ contract Ranking is PausableToken {
                 }
             }
         }
+    }
+
+    function distanceWithCheckUnderZero(uint _itemId, uint _distance, uint _speed)
+        internal
+        returns (uint)
+    {
+        Item storage item = Items[_itemId];
+
+        uint minExpectedTime = _distance.div(_speed);
+        bool hasActiveMoving = false;
+
+        for (uint i = 0; i < item.movingsIds.length; ++i) {
+            Moving storage moving = Movings[item.movingsIds[i]];
+
+            uint finishTime = moving.startTime.add(moving.distance.div(moving.speed));
+            if (finishTime > now) {
+                hasActiveMoving = true;
+                uint _time = getRankForTimestamp(_itemId, finishTime) / _speed;
+
+                if (_time < minExpectedTime)
+                    minExpectedTime = _time;
+            }
+        }
+
+        if (!hasActiveMoving) {
+            uint time = getRankForTimestamp(_itemId, finishTime) / _speed;
+            if (time < minExpectedTime)
+                minExpectedTime = time;
+        }
+
+        return minExpectedTime.mul(_speed);
     }
 
     function send(address _to, uint256 _value)
