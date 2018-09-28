@@ -35,8 +35,7 @@ class Autoranker(object):
     def to_uint256(self, number):
         return self.web3.toWei(str(number), 'wei')
 
-
-    def __init__(self, config, private_key, dapps):
+    def __init__(self, config, dapps):
         self.config = config
         self.dapps = dapps
         self.web3 = Web3(Web3.HTTPProvider(config['eth_http_node']))
@@ -46,13 +45,16 @@ class Autoranker(object):
             raise Exception("[ERROR] Web3 is not connected to {}: {}".format(config['eth_http_node'], self.web3))
 
         logger.debug("Connected to node, provider: {}".format(config['eth_http_node']))
-        self.private_key = private_key
-        keccak = sha3.keccak_256()
-        sk = SigningKey.from_string(bytes().fromhex(private_key), curve=SECP256k1)
-        self.public_key = sk.get_verifying_key().to_string()
-        keccak.update(self.public_key)
-        self.address = self.web3.toChecksumAddress("0x{}".format(keccak.hexdigest()[24:]))
+        if (not config.get('accounts')):
+            raise Exception("[ERROR] Accounts was not loaded from file '{}'".format(config['keys_file']))
+        
+        self.private_key = self.config['accounts'][0]['private_key']
+        sk = SigningKey.from_string(bytes().fromhex(self.private_key), curve=SECP256k1)
+        self.public_key = self.config['accounts'][0]['public_key']
+        self.address = self.web3.toChecksumAddress(self.config['accounts'][0]['address'])
+        
         self.tcrank = self.web3.eth.contract(address=self.web3.toChecksumAddress(config['tcrank_address']), abi=config['tcrank_abi'])
+
         self.eth_balance = self.web3.eth.getBalance(self.address)
         self.crn_balance = self.tcrank.functions.balanceOf(self.address).call()
         # enum ItemState { None, Voting }
@@ -63,8 +65,8 @@ class Autoranker(object):
                      .format(self.address, self.web3.fromWei(self.eth_balance, 'ether'), self.web3.fromWei(self.crn_balance, 'ether')))
 
         self.play_params = {
-            'up_probability': 0.8, # probability to push item up or dawn
-            'max_push_stake': 18, # max voting power for pushing item
+            'up_probability': 0.9, # probability to push item up or dawn
+            'max_push_stake': 20, # max voting power for pushing item
             'accumulator': { 'simple_profit': 0,
                            }
         }
@@ -122,17 +124,38 @@ class Autoranker(object):
             push_force = -1 * impulse
         
         commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt])
-        return { 'isup': isup, 'push_force': push_force, 'impulse': impulse, 'salt': salt, 'commit_hash': commit_hash, 'seed_str': seed_str }
         
-
+        account = random.choice(self.config['accounts'])
+        
+        return {'account': account,  'isup': isup, 'push_force': push_force, 'impulse': impulse, 'salt': salt, 'commit_hash': commit_hash, 'seed_str': seed_str }
+        
+    
 
     def push_selected_dapp(self, dapp_id):
+        
+        actions = []
         
         dapp = self.get_dapp_from_contract(dapp_id)
         current_ts = int(time.time())
         # get random params for push - impulse, random salt, calculate commit hash
         push_params = self.get_random_push_params(dapp['id'], current_ts)        
-        
+        acc = push_params['account']
+
+        acc['eth_balance'] = self.web3.eth.getBalance(acc.address)
+        acc['crn_balance'] = self.tcrank.functions.balanceOf(acc.address).call()
+
+        if acc['eth_balance'] == 0:
+            actions.append({'action': 'giveEther',
+                                'params': [{'from': self.config['accounts'][0]['address'], 'amount': 0.3}],
+                                'wait': 30});
+
+        if acc['crn_balance'] == 0:
+            actions.append({'action': 'faucetTokens',
+                                'params': [],
+                                'wait': 30});
+
+
+
         commit_ttl = 30
         reveal_ttl = 30
         voting_active = False
@@ -146,13 +169,12 @@ class Autoranker(object):
         if (dapp.get('voting_state') == 'finished'):
             voting_active = False
 
-        actions = []
         # plan actions for 4 phases
         # -----1(before voting start)---|---2(commit phase)----|---3(reveal_phase)----|----4(finish voting allowed)---------
 
         if (not voting_active):
-            print("DApp [{}], current time {}, no active voting, plan full cycle"
-                  .format(dapp_id, current_ts))
+            print("DApp [{}], rank: {}, current time {}, no active voting, plan full cycle"
+                  .format(dapp_id, dapp.get('rank'), current_ts))
             actions.append({'action': 'voteCommit',
                             'params': [self.to_uint256(dapp['id']), push_params['commit_hash']],
                             'wait': commit_ttl}); # FIXME - calculate
@@ -171,8 +193,8 @@ class Autoranker(object):
         else:
             ########### ERROR #########################
             if (current_ts < start_ts): 
-                print("DApp [{}] Voting exists, but start time in in future, current ts: {}, voting starts at {} ({} secs after). Do nothing"
-                             .format(dapp['id'], current_ts, start_ts, start_ts - current_ts))
+                print("DApp [{}], rank: {}, voting exists, but start time in in future, current ts: {}, voting starts at {} ({} secs after). Do nothing"
+                             .format(dapp['id'], dapp.get('rank'), current_ts, start_ts, start_ts - current_ts))
             ######### COMMIT PHASE ##################
             elif (current_ts >= start_ts and current_ts <= (start_ts + commit_ttl)):
                 seconds_left = start_ts + commit_ttl - current_ts
@@ -216,6 +238,8 @@ class Autoranker(object):
                                 'params': [self.to_uint256(dapp['id'])],
                                 'wait': 0});
 
+        print("CUT!")
+        return
 
         ################## ACTIONS READY ########################
         for a in actions:
@@ -224,19 +248,33 @@ class Autoranker(object):
             args = a.get('params', [])
             tx = None
 
+            if (a['action'] == 'giveEther'):
+                params = args[0] # passed as "{ from: '0x....', amount: 0.3 }"
+                transaction = {
+                    'to': params['from'],
+                    'value': self.web3.toWei(params['amount'], 'ether'),
+                    'gas': 2000000,
+                    'gasPrice': self.web3.toWei('1.5', 'gwei'),
+                    'nonce': self.web3.eth.getTransactionCount(self.address),
+                }
+
+
+            print("CUT!!!!!!!!!!")
+            continue
+
             if (a['action'] == 'voteCommit'):
                 tx = self.tcrank.functions.voteCommit(*args)\
                                                .buildTransaction({
-                                                                    'gas': 5000000,
-                                                                    'gasPrice': self.web3.toWei('7', 'gwei'),
+                                                                    'gas': 3000000,
+                                                                    'gasPrice': self.web3.toWei('1', 'gwei'),
                                                                     'nonce': self.web3.eth.getTransactionCount(self.address)
                                                                 })
 
             elif (a['action'] == 'voteReveal'):
                 tx = self.tcrank.functions.voteReveal(*args)\
                                                .buildTransaction({
-                                                                    'gas': 6000000,
-                                                                    'gasPrice': self.web3.toWei('8', 'gwei'),
+                                                                    'gas': 4000000,
+                                                                    'gasPrice': self.web3.toWei('1', 'gwei'),
                                                                     'nonce': self.web3.eth.getTransactionCount(self.address)
                                                                 })
 
@@ -244,7 +282,7 @@ class Autoranker(object):
                 tx = self.tcrank.functions.finishVoting(*args)\
                                                .buildTransaction({
                                                                     'gas': 7300000,
-                                                                    'gasPrice': self.web3.toWei('9', 'gwei'),
+                                                                    'gasPrice': self.web3.toWei('3', 'gwei'),
                                                                     'nonce': self.web3.eth.getTransactionCount(self.address)
                                                                 })
 
@@ -264,9 +302,13 @@ class Autoranker(object):
             except ValueError as e:
                 print("DApp [{}], transaction {}(), exception: {}".format(dapp['id'], a['action'], repr(e)))
                 if (str(e.args[0]['code']) == '-32000'): # already processing tx
-                    print("DApp [{}], transaction {}() is active, waiting, tx_hash: {}".format(dapp['id'], a['action'], tx_hash))
-                    self.web3.eth.waitForTransactionReceipt(tx_hash)
-                    a['completed'] = True
+                    print("DApp [{}], transaction {}() is active, tx_hash: {}".format(dapp['id'], a['action'], a['tx_hash']))
+                    try:
+                        self.web3.eth.waitForTransactionReceipt(a['tx_hash'])
+                        a['completed'] = True
+                    except Exception as e:
+                        print("DApp [{}], error calling {}() function: {}".format(dapp['id'], a['action'], repr(e)))
+                        
             except Exception as e:
                 print("DApp [{}], error calling {}() function: {}".format(dapp['id'], a['action'], repr(e)))
               
@@ -293,7 +335,7 @@ class Autoranker(object):
 
         chosen_dapps = []
         for dapp_id in self.dapps:
-            if (int(dapp_id) % 8 == 0):
+            if (int(dapp_id) % 33 == 0):
                 chosen_dapps.append(dapp_id)
 
         while n < n_dapps:
@@ -330,14 +372,14 @@ class Autoranker(object):
 
 
     def load_dapps_to_contract(self):
-        PACKSIZE = 30
+        PACKSIZE = 32
         ids_pack = []
         ranks_pack = []
         i = 0
         for dapp_id in self.dapps:
             dapp = self.dapps[dapp_id]
-            if (int(dapp_id) > 100):
-                continue
+            #if (int(dapp_id) > 100):
+            #    continue
 
             existing = self.get_dapp_from_contract(dapp_id)
             if existing is not None:
@@ -354,15 +396,15 @@ class Autoranker(object):
             logger.info("DApps ({}) adding to contract with ranks({})".format(', '.join(str(x) for x in ids_pack), ', '.join(str(x) for x in ranks_pack)))
             tx = self.tcrank.functions.newItemsWithRanks(_ids=ids_pack,
                                                          _ranks=ranks_pack).buildTransaction({
-        						'gas': 6000000,
-        						'gasPrice': self.web3.toWei('1', 'gwei'),
+        						'gas': 5000000,
+        						'gasPrice': self.web3.toWei('2', 'gwei'),
                                                         'nonce': self.web3.eth.getTransactionCount(self.address)
                                                         })
             signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
             tx_hash = self.web3.eth.sendRawTransaction(signed_tx.rawTransaction)
-            logger.debug("Transaction send, sleeping")
-            time.sleep(120)
-            # self.web3.eth.waitForTransactionReceipt(tx_hash)
+            self.web3.eth.waitForTransactionReceipt(tx_hash)
+            logger.debug("Transaction sent, sleeping")
+            time.sleep(20)
             ids_pack = []
             ranks_pack = []
 
