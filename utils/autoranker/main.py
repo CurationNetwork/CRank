@@ -42,6 +42,9 @@ def get_config(args):
     with open("../../solidity/smartz/ranking.abi") as json_data:
         config['tcrank_abi'] = json.load(json_data)
 
+    with open("../../solidity/smartz/faucet.abi") as json_data:
+        config['faucet_abi'] = json.load(json_data)
+
     if (args.keys_file):
         config['keys_file'] = args.keys_file.name
         config['accounts'] = json.load(args.keys_file)

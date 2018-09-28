@@ -54,6 +54,7 @@ class Autoranker(object):
         self.address = self.web3.toChecksumAddress(self.config['accounts'][0]['address'])
         
         self.tcrank = self.web3.eth.contract(address=self.web3.toChecksumAddress(config['tcrank_address']), abi=config['tcrank_abi'])
+        self.faucet = self.web3.eth.contract(address=self.web3.toChecksumAddress(config['faucet_address']), abi=config['faucet_abi'])
 
         self.eth_balance = self.web3.eth.getBalance(self.address)
         self.crn_balance = self.tcrank.functions.balanceOf(self.address).call()
@@ -111,21 +112,25 @@ class Autoranker(object):
         # generate same push params for same dapp_id in range of two minutes minute (to reconstruct reveal info)
         seed_str = str(dapp_id) + '_' + str(current_ts - (current_ts % 30))
         # random.seed(seed_str)
-        impulse = int(self.play_params['max_push_stake'] * random.uniform(0, 1)) - int(self.play_params['max_push_stake'] / 2)
+        impulse = int(self.play_params['max_push_stake'] * random.uniform(0, 1))
         salt = int(random.randint(0,100000000)) # FIXME
 
         isup = 0
         push_force = 1
         # leave push_force == 1 if impulse == 0
-        if (impulse > 0):
+        if (random.uniform(0, 1) <= self.play_params['up_probability']):
             isup = 1
             push_force = impulse
         elif (impulse < 0):
             push_force = -1 * impulse
         
+        push_force = self.web3.toWei(push_force, 'ether')
+
         commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt])
         
         account = random.choice(self.config['accounts'])
+        # FIXME 
+        account['address'] = self.web3.toChecksumAddress(account['address'])
         
         return {'account': account,  'isup': isup, 'push_force': push_force, 'impulse': impulse, 'salt': salt, 'commit_hash': commit_hash, 'seed_str': seed_str }
         
@@ -141,18 +146,23 @@ class Autoranker(object):
         push_params = self.get_random_push_params(dapp['id'], current_ts)        
         acc = push_params['account']
 
-        acc['eth_balance'] = self.web3.eth.getBalance(acc.address)
-        acc['crn_balance'] = self.tcrank.functions.balanceOf(acc.address).call()
+        acc['eth_balance'] = self.web3.eth.getBalance(acc['address'])
+        acc['crn_balance'] = self.tcrank.functions.balanceOf(acc['address']).call()
+        print("Plan to use addr: {}, eth balance: {}, CRN balance: {}".format(acc['address'], self.web3.fromWei(acc['eth_balance'], 'ether'), self.web3.fromWei(acc['crn_balance'], 'ether')))
 
         if acc['eth_balance'] == 0:
+            eth_amount = 0.3
+            from_addr = self.config['accounts'][0]['address']
+            print("No ether on address {}, sending {} eth it from {}".format(acc['address'], from_addr, eth_amount))
             actions.append({'action': 'giveEther',
-                                'params': [{'from': self.config['accounts'][0]['address'], 'amount': 0.3}],
-                                'wait': 30});
+                                'params': [{'to': acc['address'], 'from': from_addr, 'amount': eth_amount}],
+                                'wait': 3});
 
         if acc['crn_balance'] == 0:
+            print("No CRN tokens on address {}, calling faucet {}".format(acc['address'], self.config['faucet_address']))
             actions.append({'action': 'faucetTokens',
                                 'params': [],
-                                'wait': 30});
+                                'wait': 3});
 
 
 
@@ -238,9 +248,6 @@ class Autoranker(object):
                                 'params': [self.to_uint256(dapp['id'])],
                                 'wait': 0});
 
-        print("CUT!")
-        return
-
         ################## ACTIONS READY ########################
         for a in actions:
             dapp = self.get_dapp_from_contract(dapp_id)
@@ -250,19 +257,23 @@ class Autoranker(object):
 
             if (a['action'] == 'giveEther'):
                 params = args[0] # passed as "{ from: '0x....', amount: 0.3 }"
-                transaction = {
-                    'to': params['from'],
+                tx = {
+                    'from': params['from'],
+                    'to': params['to'],
                     'value': self.web3.toWei(params['amount'], 'ether'),
-                    'gas': 2000000,
+                    'gas': 1000000,
                     'gasPrice': self.web3.toWei('1.5', 'gwei'),
                     'nonce': self.web3.eth.getTransactionCount(self.address),
                 }
 
-
-            print("CUT!!!!!!!!!!")
-            continue
-
-            if (a['action'] == 'voteCommit'):
+            elif (a['action'] == 'faucetTokens'):
+                tx = self.faucet.functions.faucet()\
+                                               .buildTransaction({
+                                                                    'gas': 1000000,
+                                                                    'gasPrice': self.web3.toWei('1', 'gwei'),
+                                                                    'nonce': self.web3.eth.getTransactionCount(self.address)
+                                                                })
+            elif (a['action'] == 'voteCommit'):
                 tx = self.tcrank.functions.voteCommit(*args)\
                                                .buildTransaction({
                                                                     'gas': 3000000,
