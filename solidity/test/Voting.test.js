@@ -26,7 +26,6 @@ contract('Voting', function(accounts) {
         await advanceBlock();
 
         this.voting = await Voting.new();
-        await this.voting.init();
     });
 
     describe('happy path vote', function() {
