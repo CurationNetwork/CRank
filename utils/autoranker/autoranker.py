@@ -62,6 +62,7 @@ class Autoranker(object):
 
         self.eth_balance = self.web3.eth.getBalance(self.address)
         self.crn_balance = self.tcrank.functions.balanceOf(self.address).call()
+
         # enum ItemState { None, Voting }
         self.item_states = {0: 'none', 1: 'voting'}
         # enum VotingState { Commiting, Revealing, Finished }
@@ -214,19 +215,21 @@ class Autoranker(object):
         acc['eth_balance'] = self.web3.eth.getBalance(acc['address'])
         acc['crn_balance'] = self.tcrank.functions.balanceOf(acc['address']).call()
         print("Plan to use addr: {}, eth balance: {}, CRN balance: {}".format(acc['address'], self.web3.fromWei(acc['eth_balance'], 'ether'), self.web3.fromWei(acc['crn_balance'], 'ether')))
+        faucet_addr = self.config['accounts'][0]['address']
 
         if acc['eth_balance'] == 0:
             eth_amount = 0.3
-            from_addr = self.config['accounts'][0]['address']
-            print("No ether on address {}, sending {} eth it from {}".format(acc['address'], from_addr, eth_amount))
+            faucet_addr = self.config['accounts'][0]['address']
+            print("No ether on address {}, sending {} eth it from {}".format(acc['address'], faucet_addr, eth_amount))
             actions.append({'action': 'giveEther',
-                                'params': [{'to': acc['address'], 'from': from_addr, 'amount': eth_amount}],
+                                'params': [{'to': acc['address'], 'from': faucet_addr, 'amount': eth_amount}],
                                 'wait': 3});
 
         if acc['crn_balance'] == 0:
-            print("No CRN tokens on address {}, calling faucet {}".format(acc['address'], self.config['faucet_address']))
-            actions.append({'action': 'faucetTokens',
-                                'params': [],
+            crn_amount = 100
+            print("No CRN tokens on address {}, sending {} CRN from {}".format(acc['address'], faucet_addr, crn_amount))
+            actions.append({'action': 'giveTokens',
+                                'params': [{'to': acc['address'], 'from': faucet_addr, 'amount': crn_amount}],
                                 'wait': 3});
 
 
@@ -331,8 +334,9 @@ class Autoranker(object):
                     'nonce': self.web3.eth.getTransactionCount(self.address),
                 }
 
-            elif (a['action'] == 'faucetTokens'):
-                tx = self.faucet.functions.faucet()\
+            elif (a['action'] == 'giveTokens'):
+                params = args[0] # passed as "{ from: '0x....', amount: 0.3 }"
+                tx = self.tcrank.functions.transfer(params['to'], self.web3.toWei(params['amount'], 'ether'))\
                                                .buildTransaction({
                                                                     'gas': 1000000,
                                                                     'gasPrice': self.web3.toWei('1', 'gwei'),
