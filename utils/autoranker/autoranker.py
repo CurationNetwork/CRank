@@ -29,6 +29,9 @@ from ecdsa import SigningKey, SECP256k1
 import logging
 logger = logging.getLogger('autoranker')
 
+
+INIT_RANK = 300000000000000000000
+
 class Autoranker(object):
 
     # convert to uint256
@@ -41,6 +44,7 @@ class Autoranker(object):
         self.web3 = Web3(Web3.HTTPProvider(config['eth_http_node']))
         # need for Rinkeby network
         self.web3.middleware_stack.inject(geth_poa_middleware, layer=0)
+
         if (not self.web3.isConnected()):
             raise Exception("[ERROR] Web3 is not connected to {}: {}".format(config['eth_http_node'], self.web3))
 
@@ -87,6 +91,7 @@ class Autoranker(object):
 
         if self.dapps.get(dapp_id) is None:
             print("DApp [{}] is not present in local dapps, creating new".format(dapp_id))
+            # ARRAY_JOPA (FIXME)
             self.dapps[dapp_id] = {'id': dapp_id, 'address': dapp[0], 'rank': dapp[1], 'balance': dapp[2], 'voting_id': dapp[3], 'movings_ids': dapp[3]}
         else:
             self.dapps[dapp_id]['address'] = dapp[0]
@@ -97,7 +102,7 @@ class Autoranker(object):
         
         item_state_id = self.tcrank.functions.getItemState(self.to_uint256(dapp_id)).call()
         self.dapps[dapp_id]['item_state'] = self.item_states[item_state_id]
-
+        # ARRAY_JOPA (FIXME)
         voting_id = dapp[3]
         if (voting_id != 0):
             self.dapps[dapp_id]['voting'] = self.tcrank.functions.getVoting(voting_id).call()
@@ -108,6 +113,60 @@ class Autoranker(object):
         return self.dapps[dapp_id]
 
 
+    def show_ranking(self):
+        ranking = {}
+        stats = { 'total':0, 'dno': 0, 'moving':0, 'commit':0, 'reveal':0, 'unfinished':0 }
+        res = self.tcrank.functions.getItemsWithRank().call()
+        i = 0
+        for (id, rank) in zip(res[0], res[1]):
+            stats['total'] += 1
+            # FIXME correctly UPDATE RANKS HERE (not actual beacuse of default INIT_RANK (I just skip this items), it's wrong
+            if (str(rank) == str(INIT_RANK)):
+                stats['dno'] += 1
+                continue
+
+
+            if (self.dapps.get(str(id)) is None):
+                # print("Dapp [{}] not found in self.dapps, strange".format(id))
+                continue
+
+            name = self.dapps[str(id)].get('name')
+            dapp = {'rank': rank, 'name': name, 'info': 'idle'}
+
+            dapp_item = self.tcrank.functions.getItem(self.to_uint256(id)).call()
+            # ARRAY JOPA (FIXME)
+            if (int(dapp_item[3]) != 0):
+                v = self.tcrank.functions.getVoting(self.to_uint256(dapp_item[3])).call()
+                # dapp['voting'] = v
+                # [29517632169067660389, 1000000000000000000, 30, 30, 1538397188, 29517632169067660389, 296125441696112863068, ['0x6290C445A720E8E77dd8527694030028D1762073']]
+                curts = time.time()
+                # v[4] - start
+                # v[2] - commit pahse length
+                # v[3] - reveal phase length
+    
+                if (curts < v[4]):
+                    dapp['info'] = "voting: not started yet(strange), {} sec left".format(int(v[4] - curts))
+                elif (curts >= v[4] and curts < v[4] + v[2]):
+                    dapp['info'] = "voting: commit phase, {} sec left".format(int(v[4] + v[2] - curts))
+                elif (curts >= v[4] + v[2] and curts < v[4] + v[2] + v[3]):
+                    dapp['info'] = "voting: reveal phase, {} sec left".format(int(v[4] + v[2] + v[3] - curts))
+                elif (curts >= v[4] + v[2] + v[3]):
+                    dapp['info'] = "voting: finish phase, {} sec waiting for finish".format(int(curts - (v[4] + v[2] + v[3])))
+
+                  # aotin_id = dapp_item.get('votingId')
+            # iaf (not voting_id):
+                
+            ranking[id] = dapp
+
+        i = 0
+        for dapp_id in sorted(ranking, key=lambda x: ranking[x]['rank'], reverse=True):
+            d = ranking[dapp_id]
+            print("{:>4}: DApp[{:>4}] {:>24},    rank(rounded): {:>7},    status: {}".format(i, dapp_id, d['name'], int(self.web3.fromWei(d['rank'], 'ether')), d['info']))
+            i += 1
+ 
+        # print(json.dumps(ranking, indent=4, sort_keys=True))
+        # print(repr(stats))
+        
     def get_random_push_params(self, dapp_id, current_ts):
         # generate same push params for same dapp_id in range of two minutes minute (to reconstruct reveal info)
         seed_str = str(dapp_id) + '_' + str(current_ts - (current_ts % 30))
@@ -132,7 +191,13 @@ class Autoranker(object):
         # FIXME 
         account['address'] = self.web3.toChecksumAddress(account['address'])
         
-        return {'account': account,  'isup': isup, 'push_force': push_force, 'impulse': impulse, 'salt': salt, 'commit_hash': commit_hash, 'seed_str': seed_str }
+        return {'account': account, 
+                'isup': isup,
+                'push_force': push_force,
+                'impulse': impulse,
+                'salt': salt,
+                'commit_hash': commit_hash,
+                'seed_str': seed_str }
         
     
 

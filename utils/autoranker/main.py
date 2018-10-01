@@ -7,11 +7,12 @@ import time
 import argparse
 from queue import Queue
 from urllib.request import urlopen, Request
+from urllib.error import HTTPError
+
 import re
 import json
-
 import hashlib
-
+import hashlib
 import os.path
 
 import web3
@@ -25,18 +26,18 @@ from ecdsa import SigningKey, SECP256k1
 import logging
 logger = logging.getLogger('autoranker')
 
-from autoranker import Autoranker
+from autoranker import Autoranker, INIT_RANK
 
 
 def get_config(args):
     config = {
         "eth_http_node": "https://rinkeby.infura.io/v3/1474ceef2da44edbac41a2efd66ee882",
         # "eth_http_node": "http://10.100.11.24:8545",
-        # "tcrank_address": "0x92dd1421d51f7a95eb7fd59634cb0082a0999c9a",
-        # "faucet_address": "0x1a41d0442b0e90eb4723efbaecd1da6bb39c86a5",
-        
-        "tcrank_address": "0xf41bf51e450e67fc201bcc4e5176beffa7f7ccb1",
-        "faucet_address": "0xa0033f1dfaf979c7b805041b528a4d0af73c2d25",
+
+        "tcrank_address": "0xdd5c07c484778ae52b5e60999bf625a998c265b4",
+        "faucet_address": "0x29b914a61a0ba1d6f24d55406795917f954510b5",
+
+        "dapps_import_url": "https://stage.curation.network/api/store/projects/export",
     }
 
     with open("../../solidity/smartz/ranking.abi") as json_data:
@@ -80,13 +81,14 @@ def main(arguments):
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-k', '--keys-file', help="File with keys and addresses", type=argparse.FileType('r'))
+    parser.add_argument('--dapp-id', action="store", type=int, help="performs operation for selected dapp id (randomplay or syncdapps)")
     parser.add_argument('--random-play', action="store_true", help="begins to push dapps randomly")
     parser.add_argument('--generate-keys-pack', action="store_true", help="outputs pack of keypairs + eth addresses")
-    parser.add_argument('--dapp-id', action="store", type=int, help="performs operation for selected dapp id")
     parser.add_argument('--sync-dapps', action="store_true", help="begins to renew dapps in contract(if owner)")
+    parser.add_argument('--show-ranking', action="store_true", help="outputs ranking from contract")
 
     args = parser.parse_args(arguments)
-    
+
     # GENERATES ARRAY OF DICTS with private,public keys and addresses
     if (args.generate_keys_pack == True):
         keys = []
@@ -99,22 +101,22 @@ def main(arguments):
 
     config = get_config(args)
     
-    
-    their_dapps = {}
-    with open("./dapps.json") as f:
-        their_dapps = json.load(f)
-
-    # temp
+    their_dapps = get_json_from_url(config['dapps_import_url'])
     dapps = {}
-    for id in their_dapps:
+    for d in their_dapps:
+        id = str(d.get('id'))
         dapps[id] = { 'id': id,
-                     'name': their_dapps[id],
-                     'rank': '1'
+                      'name': d.get('name'),
+                      'rank': str(INIT_RANK)  #'300000000000000000000' TEMP
                     }
 
     # now create autoranker object and pass contract and account to it. Any further logic must be implemented in Autoranker class
     autoranker = Autoranker(config, dapps)
     
+    if (args.show_ranking == True):
+        autoranker.show_ranking()
+        return
+
     if (args.sync_dapps == True):
         autoranker.load_dapps_to_contract()
         return
@@ -130,6 +132,73 @@ def main(arguments):
 
 def to_32byte_hex(val):
     return Web3.toHex(Web3.toBytes(val).rjust(32, b'\0'))
+
+
+
+def get_json_from_url(url,
+                      cache_ttl=86400, # TTL of downloaded cached file with JSON. Before this time URL will not be downloaded, contents will be taken from cached file
+                      ):
+    # logger.debug(" getting JSON from url: '{}'".format(url))
+    if (url is None or not isinstance(url, str)):
+        logger.error("Wrong url param empty or not a string")
+        return None
+    
+    md5hasher = hashlib.md5()
+    md5hasher.update(url.encode('utf-8'))
+    urlhash = md5hasher.hexdigest() # use global hasher if highloads
+
+    filename = '/tmp/' + 'autoranker_cache_json_' + urlhash
+
+    if (os.path.isfile(filename)):
+        st = os.stat(filename)
+        age = round(time.time() - st.st_mtime)
+        if (age < cache_ttl):
+            # logger.debug("file '{}' already exists, age: {} < {}, using cached".format(filename, age, cache_ttl))
+            file = open(filename, "r")
+            json_text = file.read()
+            file.close()
+            result = None
+            try:
+                result = json.loads(json_text)
+                return result
+            except:
+                logger.error("cannot decode cached JSON from file: '{}'".format(filename))
+
+    json_body = None
+    try_count = 0
+    max_tries=2
+    while (try_count <= max_tries):
+        try_count = try_count + 1
+        try:
+            req = Request(   url,
+                      data=None,
+                      headers={
+                         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36'
+                      }
+            )
+            res = urlopen(req)
+            json_body = res.read()
+        except HTTPError as e:
+            if (e.code == 429): # too many requests
+                logger.debug("Too many requests for url: '{}', sleeping for {}s, try {}".format(url, sleep_when_429, try_count))
+                time.sleep(sleep_when_429)
+        except Exception as e:
+            logger.error("cannot get JSON from url '{}', try {}: {}".format(url, try_count, repr(e)))
+    
+    if (json_body is None):
+        logger.error("no JSON from url '{}', tries: {}".format(url, try_count))
+
+    # save cached copy
+    try:
+        result = json.loads(json_body)
+        with open(filename, 'w') as outfile:
+            json.dump(result, outfile)
+            # logger.debug("JSON contents saved to file: '{}'".format(filename))
+            return result
+    except Exception as e:
+        logger.error("cannot parse JSON from downloaded url '{}': {}".format(url, repr(e)))
+    
+    return None
 
 
 
