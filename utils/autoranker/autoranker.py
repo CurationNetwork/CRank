@@ -117,7 +117,12 @@ class Autoranker(object):
     def show_ranking(self):
         ranking = {}
         stats = { 'total':0, 'dno': 0, 'moving':0, 'commit':0, 'reveal':0, 'unfinished':0 }
-        res = self.tcrank.functions.getItemsWithRank().call()
+        res = [[],[]]
+        try:
+            res = self.tcrank.functions.getItemsWithRank().call()
+        except BadFunctionCallOutput as e:
+            print("Error calling getItemsWithRank(), nothing returned from contract at {}".format(self.address))
+
         i = 0
         for (id, rank) in zip(res[0], res[1]):
             stats['total'] += 1
@@ -243,8 +248,7 @@ class Autoranker(object):
             reveal_ttl = dapp['voting'][3]
             start_ts = dapp['voting'][4]
             voting_active = True
-        
-        if (dapp.get('voting_state') == 'finished'):
+        else:
             voting_active = False
 
         # plan actions for 4 phases
@@ -404,7 +408,7 @@ class Autoranker(object):
 
 
 
-    def start_moving_dapps(self, single_dapp_id, n_dapps=50):
+    def start_moving_dapps(self, single_dapp_id, n_dapps=900):
         print("Start to play, play_params: {}".format(repr(self.play_params)))
         n = 0
 
