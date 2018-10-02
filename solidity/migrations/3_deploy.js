@@ -6,7 +6,7 @@ let Admin = artifacts.require("./Admin.sol");
 // dynamicFeeLinearRate, dynamicFeeLinearPrecision, maxOverStakeFactor,
 // maxFixedFeeRate, maxFixedFeePrecision, unstakeSpeed,
 // currentCommitTtl, currentRevealTtl, initialAvgStake
-let rankingParams = [ 1, 100, 100, 1, 10, web3.toWei(1), 180, 180, web3.toWei(300) ];
+let rankingParams = [ 1, 100, 100, 1, 10, web3.toWei(1), 30, 30, web3.toWei(300) ];
 let totalSupply = web3.toWei(1000000);
 let faucetRate = 3600;
 let faucetSize = web3.toWei(1000);
