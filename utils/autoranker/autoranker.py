@@ -21,7 +21,11 @@ from web3 import Web3, HTTPProvider, TestRPCProvider
 from web3.contract import ConciseContract
 from web3.middleware import geth_poa_middleware
 from web3.exceptions import BadFunctionCallOutput
+from web3.utils.events import get_event_data
 from eth_abi import encode_abi, decode_abi
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 import sha3
 from ecdsa import SigningKey, SECP256k1
@@ -121,7 +125,7 @@ class Autoranker(object):
         try:
             res = self.tcrank.functions.getItemsWithRank().call()
         except BadFunctionCallOutput as e:
-            print("Error calling getItemsWithRank(), nothing returned from contract at {}".format(self.address))
+            print("Error calling getItemsWithRank(), nothing returned from contract at {}: {}".format(self.config['tcrank_address'], repr(e)))
 
         i = 0
         for (id, rank) in zip(res[0], res[1]):
@@ -167,7 +171,7 @@ class Autoranker(object):
         i = 0
         for dapp_id in sorted(ranking, key=lambda x: ranking[x]['rank'], reverse=True):
             d = ranking[dapp_id]
-            print("{:>4}: DApp[{:>4}] {:>24},    rank(rounded): {:>7},    status: {}".format(i, dapp_id, d['name'], int(self.web3.fromWei(d['rank'], 'ether')), d['info']))
+            print("{:>4}: DApp[{:>4}] {:>32},    rank(rounded): {:>7},    status: {}".format(i, dapp_id, d['name'], int(self.web3.fromWei(d['rank'], 'ether')), d['info']))
             i += 1
  
         # print(json.dumps(ranking, indent=4, sort_keys=True))
@@ -419,7 +423,7 @@ class Autoranker(object):
 
         chosen_dapps = []
         for dapp_id in self.dapps:
-            if (int(dapp_id) % 33 == 0):
+            if (int(dapp_id) % 25 == 0):
                 chosen_dapps.append(dapp_id)
 
         while n < n_dapps:
@@ -480,8 +484,8 @@ class Autoranker(object):
             logger.info("DApps ({}) adding to contract with ranks({})".format(', '.join(str(x) for x in ids_pack), ', '.join(str(x) for x in ranks_pack)))
             tx = self.tcrank.functions.newItemsWithRanks(_ids=ids_pack,
                                                          _ranks=ranks_pack).buildTransaction({
-        						'gas': 5000000,
-        						'gasPrice': self.web3.toWei('2', 'gwei'),
+                                'gas': 5000000,
+                                'gasPrice': self.web3.toWei('2', 'gwei'),
                                                         'nonce': self.web3.eth.getTransactionCount(self.address)
                                                         })
             signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
@@ -493,3 +497,150 @@ class Autoranker(object):
             ranks_pack = []
 
         return None
+
+
+    def tx_to_json(tx):
+        result = {}
+        for key, val in tx.items():
+            if isinstance(val, HexBytes):
+                result[key] = val.hex()
+            else:
+                result[key] = val
+
+        return json.dumps(result)
+
+
+    def ranking_history(self, single_dapp_id, output_file):
+
+        MOVING_EVENT_NAME = 'MovingStarted'
+
+        event_abi = None
+        for i in self.config['tcrank_abi']:
+            if i['type'] == 'event' and i['name'] == MOVING_EVENT_NAME:
+                event_abi = i
+                break
+
+        if event_abi is None:
+            raise KeyError("No abi for event '{}' was found in ranking.abi".format(MOVING_EVENT_NAME))
+
+
+        addr = self.web3.toChecksumAddress(self.config['tcrank_address'])
+        event_signature = self.web3.sha3(text='MovingStarted(uint256,uint256,uint256,uint256,uint256,uint256,uint256)').hex()
+        filt = self.web3.eth.filter({'address': addr, 'topics': [event_signature], 'fromBlock': int(self.config['tcrank_deploy_block_no']) - 10 });
+
+        logs = []
+        try:
+            logs = self.web3.eth.getFilterLogs(filt.filter_id)
+        finally:
+            self.web3.eth.uninstallFilter(filt.filter_id)
+
+        zero_ts = int(time.time())
+        max_ts = zero_ts
+        # movement equation when object is pushed on some interval. returns coordinate where object will be 
+        moving_function = lambda delta_t, initial_speed, interval: delta_t * initial_speed if (delta_t * initial_speed) <= interval else interval
+        
+        # movement equation when object is not pushed and stays without action for some interval of time
+        intertial_function = lambda delta_t, initial_speed, interval: 0
+
+        objects_moves = {}
+        for log in logs:
+            m = get_event_data(event_abi, log).args
+
+            # if (m.itemId != single_dapp_id):
+            #     continue
+
+            if (m.startTime < zero_ts):
+                zero_ts = m.startTime
+
+            if (objects_moves.get(m.itemId) is None):
+                objects_moves[m.itemId] = []
+
+            # no optimizations now
+            index_where_to_insert = 0
+            for prev_move in objects_moves[m.itemId]:
+                if (m.startTime >= prev_move['start']):
+                    index_where_to_insert += 1
+
+            objects_moves[m.itemId].insert(index_where_to_insert, {
+                                                            'start': m.startTime,
+                                                            'speed': m.speed,
+                                                            'distance': m.distance,
+                                                            'mov_func': moving_function 
+                                                            })
+            if (m.speed != 0 and (int(m.startTime + m.distance / m.speed) > max_ts)):
+                max_ts = int(m.startTime + m.distance / m.speed) + 1
+
+
+
+  
+        # figure(num=None, figsize=(8, 6), dpi=80, facecolor='w', edgecolor='k')
+        fig = plt.figure(figsize=(16,9), facecolor='b', edgecolor='g')
+        plt.title('DApps ranks')
+        ax = plt.subplot(111)
+        for item_id in objects_moves:
+            if (item_id % 25 != 0 or item_id < 970):
+                continue
+            mvs = objects_moves[item_id]
+            (x_series,y_series) = self.gen_xy_for_object(objects_moves[item_id], INIT_RANK)
+            ax.plot(x_series, y_series, label="[{}] rank".format(item_id))
+            i = 0
+            # for x in x_series:
+                # print("({},{})".format(x, y_series[i]))
+
+        ax.legend()
+        fig.savefig(output_file)
+ 
+        return
+
+    
+    def gen_xy_for_object(self, moves, init_rank):
+
+        x_series = [] # np.arange(zero_ts, max_ts, 60)
+        y_series = []
+        y = init_rank
+        cur_active_move_index = None
+        min_ts = int(time.time() + 3600*24)
+        max_ts = 0
+        start_rank = init_rank
+
+        for m in moves:
+            if m['distance'] == 0 or m['speed'] == 0:
+                continue
+            if m['start'] < min_ts:
+                min_ts = m['start']
+            time_distance = int(m['distance'] / m['speed']) # FIXME (check int or round)
+            if (m['start'] + time_distance) > max_ts:
+                max_ts = m['start'] + time_distance
+
+        first = True
+        for m in moves:
+            if (first is True):
+                first = False
+                x_coord = m['start'] -1
+                y_coord = start_rank
+                x_series.append(x_coord)
+                y_series.append(y_coord)
+
+            if m['distance'] == 0 or m['speed'] == 0:
+                continue
+            for x_coord in np.arange(m['start'], m['start'] + time_distance, 1):
+                y_coord += m['mov_func']((x_coord - m['start']), m['speed'], m['distance'])
+                x_series.append(x_coord)
+                y_series.append(y_coord)
+                print("Move at x:{}, move start: {} ({} from x),  speed:{}, dist: {}, time_distance: {}, got y: {})"
+                  .format(x_coord, m['start'],(x_coord - m['start']), m['speed'], m['distance'], time_distance, y_coord))
+            
+            x_coord = m['start'] + time_distance + 1
+            print("Intertial stop at x:{}, y: {}".format(x_coord, y_coord))
+            x_series.append(x_coord)
+            y_series.append(y_coord)
+
+
+
+        return(x_series, y_series)
+            
+
+
+
+   
+

@@ -27,3 +27,5 @@ py-geth>=1.4.0
 py-solc>=0.4.0
 pytest>=2.7.2
 pysha3>=1.0.2
+numpy>=1.15.2
+matplotlib>=3.0.0
