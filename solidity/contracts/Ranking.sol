@@ -2,7 +2,7 @@ pragma solidity ^0.4.23;
 
 import 'zeppelin-solidity/contracts/token/ERC20/ERC20.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
-import './IVoting.sol';
+import './IVotingPoll.sol';
 import './Admin.sol';
 import './Helper.sol';
 
@@ -110,7 +110,7 @@ contract Ranking {
     uint public maxRank;
     uint public avgStake;
 
-    IVoting votingContract;
+    IVotingPoll votingContract;
     Admin accessContract;
     ERC20 tokenContract;
 
@@ -141,7 +141,7 @@ contract Ranking {
         public
         onlyOwner
     {
-        votingContract = IVoting(votingContractAddress);
+        votingContract = IVotingPoll(votingContractAddress);
         tokenContract = ERC20(tokenContractAddress);
 
         dynamicFeeLinearRate = dynamicFeeLinearRate_;
@@ -239,15 +239,7 @@ contract Ranking {
         onlyExistItem(_itemId)
         returns (uint)
     {
-        uint maxFee = avgStake.mul(maxFixedFeeRate).div(maxFixedFeePrecision);
-        uint itemRank = getCurrentRank(_itemId);
-
-        if (itemRank >= maxRank)
-            return maxFee;
-
-        uint dRank = maxRank.sub(itemRank);
-
-        return maxFee.sub(maxFee.mul(dRank).div(maxRank));
+        return Helper.calculateFixedCommission(maxFixedFeeRate, maxFixedFeePrecision, avgStake, maxRank, getCurrentRank(_itemId));
     }
 
     function getDynamicCommission(uint _stake, uint _avgStake)
@@ -255,23 +247,7 @@ contract Ranking {
         view
         returns (uint)
     {
-        if (_stake <= _avgStake)
-            return _stake.mul(dynamicFeeLinearRate).div(dynamicFeeLinearPrecision);
-
-        uint overStake = _stake.sub(_avgStake);
-        uint fee = _avgStake.mul(dynamicFeeLinearRate).div(dynamicFeeLinearPrecision);
-
-        uint k = 1;
-        uint kPrecision = 1;
-        uint max = Helper.sqrt(tokenContract.totalSupply().sub(_avgStake));
-        uint x = maxOverStakeFactor.mul(_avgStake);
-
-        if (max > x)
-            k = max.div(x);
-        else
-            kPrecision = x.div(max);
-
-        return fee.add(k.mul(overStake).div(kPrecision) ** 2);
+        return Helper.calculateDynamicCommission(maxFixedFeeRate, maxFixedFeePrecision, maxOverStakeFactor, tokenContract.totalSupply(), _stake, _avgStake);
     }
 
     function getRankForTimestamp(uint _itemId, uint _timestamp)
@@ -434,7 +410,7 @@ contract Ranking {
     }
 
 
-    /* Only owner functions (only for testing period) */
+    /* Only admin functions (only for testing period) */
     function newItemsWithRanks(uint[] _ids, uint[] _ranks)
         public
         onlySuperuser

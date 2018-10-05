@@ -1,7 +1,7 @@
 pragma solidity ^0.4.24;
 
 
-contract IVoting {
+contract IVotingPoll {
     constructor() public {}
 
 

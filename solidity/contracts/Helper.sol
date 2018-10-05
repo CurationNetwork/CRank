@@ -49,4 +49,49 @@ library Helper {
         uint newStakesCnt = _stakesCnt.add(1);
         return _oldAvgStake.div(newStakesCnt).mul(_stakesCnt).add(_stake.div(newStakesCnt));
     }
+
+    function calculateFixedCommission(
+        uint _maxFixedFeeRate, uint _maxFixedFeePrecision,
+        uint _avgStake, uint _maxRank, uint _itemRank
+    )
+        public
+        pure
+        returns (uint)
+    {
+        uint maxFee = _avgStake.mul(_maxFixedFeeRate).div(_maxFixedFeePrecision);
+
+        if (_itemRank >= _maxRank)
+            return maxFee;
+
+        uint dRank = _maxRank.sub(_itemRank);
+
+        return maxFee.sub(maxFee.mul(dRank).div(_maxRank));
+    }
+
+    function calculateDynamicCommission(
+        uint _dynamicFeeLinearRate, uint _dynamicFeeLinearPrecision,
+        uint _maxOverStakeFactor, uint _totalSupply, uint _stake, uint _avgStake
+    )
+        public
+        view
+        returns (uint)
+    {
+        if (_stake <= _avgStake)
+            return _stake.mul(_dynamicFeeLinearRate).div(_dynamicFeeLinearPrecision);
+
+        uint overStake = _stake.sub(_avgStake);
+        uint fee = _avgStake.mul(_dynamicFeeLinearRate).div(_dynamicFeeLinearPrecision);
+
+        uint k = 1;
+        uint kPrecision = 1;
+        uint max = sqrt(_totalSupply.sub(_avgStake));
+        uint x = _maxOverStakeFactor.mul(_avgStake);
+
+        if (max > x)
+            k = max.div(x);
+        else
+            kPrecision = x.div(max);
+
+        return fee.add(k.mul(overStake).div(kPrecision) ** 2);
+    }
 }

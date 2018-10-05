@@ -1,16 +1,15 @@
 pragma solidity ^0.4.24;
-import "tokens/eip20/EIP20Interface.sol";
 import "dll/DLL.sol";
-import "attrstore/AttributeStore.sol";
 import "zeppelin-solidity/contracts/math/SafeMath.sol";
-import "./IVoting.sol";
+import "./IVotingPoll.sol";
 import "zeppelin-solidity/contracts/token/ERC20/StandardToken.sol";
+import "../installed_contracts/attrstore/contracts/AttributeStore.sol";
 /**
 @title Partial-Lock-Commit-Reveal Voting scheme with ERC20 tokens
 @author Team: Aspyn Palatnick, Cem Ozer, Yorke Rhodes
 */
 
-contract Voting is IVoting {
+contract VotingPoll is IVotingPoll {
 
     // ============
     // EVENTS:
@@ -69,6 +68,8 @@ contract Voting is IVoting {
         require(_pollID != 0);
         // prevent user from committing a secretHash of 0
         require(_secretHash != 0);
+        // prevent double commit
+        require(!pollMap[_pollID].didCommit[voter]);
 
         bytes32 UUID = attrUUID(voter, _pollID);
 

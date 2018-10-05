@@ -1,4 +1,4 @@
-let Voting = artifacts.require("./Voting.sol");
+let Voting = artifacts.require("./VotingPoll.sol");
 let Ranking = artifacts.require("./Ranking.sol");
 let Faucet = artifacts.require("./Faucet.sol");
 let Admin = artifacts.require("./Admin.sol");

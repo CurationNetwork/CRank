@@ -1,4 +1,4 @@
-const Voting = artifacts.require('./Voting.sol');
+const Voting = artifacts.require('./VotingPoll.sol');
 const AttributeStore = artifacts.require('attrstore/AttributeStore.sol');
 const Helper = artifacts.require('./Helper.sol');
 const Ranking = artifacts.require('./Ranking.sol');
