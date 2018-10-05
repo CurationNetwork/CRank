@@ -9,8 +9,8 @@ import "zeppelin-solidity/contracts/token/ERC20/StandardToken.sol";
 @title Partial-Lock-Commit-Reveal Voting scheme with ERC20 tokens
 @author Team: Aspyn Palatnick, Cem Ozer, Yorke Rhodes
 */
-contract Voting is IVoting {
 
+contract Voting is IVoting {
 
     // ============
     // EVENTS:
@@ -19,10 +19,6 @@ contract Voting is IVoting {
     event _VoteCommitted(uint indexed pollID, address indexed voter);
     event _VoteRevealed(uint indexed pollID, uint numTokens, uint votesFor, uint votesAgainst, uint indexed choice, address indexed voter, uint salt);
     event _PollCreated(uint itemId, uint commitEndDate, uint revealEndDate, uint indexed pollID, address indexed creator);
-    event _VotingRightsGranted(uint numTokens, address indexed voter);
-    event _VotingRightsWithdrawn(uint numTokens, address indexed voter);
-    event _TokensRescued(uint indexed pollID, address indexed voter);
-    event _StakeWithdrawed(uint indexed pollID, address indexed voter, uint numTokens);
 
     // ============
     // DATA STRUCTURES:
@@ -43,11 +39,10 @@ contract Voting is IVoting {
         mapping(address => bool) didReveal;   /// indicates whether an address revealed a vote for this poll
         mapping(address => uint) voteOptions; /// stores the voteOption of an address that revealed
         mapping(address => uint) lockedStakes; ///
-        mapping(address => uint) withdrawedStakes;
     }
 
     // ============
-    // STATE VARIABLES:
+    // STATE VARIABLES:require
     // ============
 
     uint constant public INITIAL_POLL_NONCE = 0;

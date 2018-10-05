@@ -1,13 +1,13 @@
 pragma solidity ^0.4.23;
 
-import 'zeppelin-solidity/contracts/token/ERC20/PausableToken.sol';
+import 'zeppelin-solidity/contracts/token/ERC20/ERC20.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
 import './IVoting.sol';
 import './Admin.sol';
 import './Helper.sol';
 
 
-contract Ranking is PausableToken {
+contract Ranking {
 
     using SafeMath for uint;
 
@@ -112,6 +112,8 @@ contract Ranking is PausableToken {
 
     IVoting votingContract;
     Admin accessContract;
+    ERC20 tokenContract;
+
 
     /* constants */
     uint public dynamicFeeLinearRate;
@@ -126,21 +128,12 @@ contract Ranking is PausableToken {
     uint public currentCommitTtl;
     uint public currentRevealTtl;
 
-    string public constant tokenName = "CurationToken";
-    string public constant symbol = "CRN";
-    uint8 public constant decimals = 18;
-
-    uint256 public constant INITIAL_SUPPLY = 1000000 * (10 ** uint256(decimals));
 
     constructor(address accessContractAddress) public {
         accessContract = Admin(accessContractAddress);
-
-        totalSupply_ = INITIAL_SUPPLY;
-        balances[msg.sender] = INITIAL_SUPPLY;
-        emit Transfer(address(0), msg.sender, INITIAL_SUPPLY);
     }
 
-    function init(address votingContractAddress,
+    function init(address votingContractAddress, address tokenContractAddress,
                 uint dynamicFeeLinearRate_, uint dynamicFeeLinearPrecision_, uint maxOverStakeFactor_,
                 uint maxFixedFeeRate_, uint maxFixedFeePrecision_, uint initialUnstakeSpeed_,
                 uint currentCommitTtl_, uint currentRevealTtl_, uint initialAvgStake_
@@ -149,6 +142,7 @@ contract Ranking is PausableToken {
         onlyOwner
     {
         votingContract = IVoting(votingContractAddress);
+        tokenContract = ERC20(tokenContractAddress);
 
         dynamicFeeLinearRate = dynamicFeeLinearRate_;
         dynamicFeeLinearPrecision = dynamicFeeLinearPrecision_;
@@ -269,7 +263,7 @@ contract Ranking is PausableToken {
 
         uint k = 1;
         uint kPrecision = 1;
-        uint max = Helper.sqrt(totalSupply_.sub(_avgStake));
+        uint max = Helper.sqrt(tokenContract.totalSupply().sub(_avgStake));
         uint x = maxOverStakeFactor.mul(_avgStake);
 
         if (max > x)
@@ -771,23 +765,18 @@ contract Ranking is PausableToken {
         internal
         returns (bool)
     {
-        require(_to != address(0));
+        assert(_to != address(0));
 
-        balances[this] = balances[this].sub(_value);
-        balances[_to] = balances[_to].add(_value);
-        emit Transfer(this, _to, _value);
-        return true;
+        return tokenContract.transfer(_to, _value);
     }
 
     function pay(address _from, uint256 _value)
         internal
         returns (bool)
     {
-        require(_from != address(0));
+        assert(_from != address(0));
+        assert(_value <= tokenContract.allowance(_from, this));
 
-        balances[_from] = balances[_from].sub(_value);
-        balances[this] = balances[this].add(_value);
-        emit Transfer(_from, this, _value);
-        return true;
+        return tokenContract.transferFrom(_from, this, _value);
     }
 }

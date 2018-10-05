@@ -10,7 +10,7 @@ chai.use(require('chai-bignumber')(BigNumber));
 chai.use(require('chai-as-promised')); // Order is important
 chai.should();
 
-
+const Token = artifacts.require('Token');
 const Voting = artifacts.require('Voting');
 const Ranking = artifacts.require('Ranking');
 const Helper = artifacts.require('Helper');
@@ -22,21 +22,6 @@ const fromWei = (num) => {
     return web3.fromWei(num.toString());
 };
 
-async function beforeFunc() {
-    await advanceBlock();
-    this.voting = await Voting.new();
-    this.helper = await Helper.new();
-    this.admin = await Admin.new();
-    this.ranking = await Ranking.new(this.admin.address);
-
-    await this.ranking.transfer(voters[0], initialBalance);
-    await this.ranking.transfer(voters[1], initialBalance);
-    await this.ranking.transfer(voters[2], initialBalance);
-
-    await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
-
-    await this.ranking.init(this.voting.address, ...rankingParams);
-}
 
 contract('Ranking', function(accounts) {
 
@@ -47,18 +32,22 @@ contract('Ranking', function(accounts) {
     describe('full', function() {
         before(async function() {
             await advanceBlock();
+            this.token = await Token.new();
             this.voting = await Voting.new();
             this.helper = await Helper.new();
             this.admin = await Admin.new();
             this.ranking = await Ranking.new(this.admin.address);
 
-            await this.ranking.transfer(voters[0], initialBalance);
-            await this.ranking.transfer(voters[1], initialBalance);
-            await this.ranking.transfer(voters[2], initialBalance);
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
 
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
         });
 
         let startTime = null;
@@ -75,9 +64,9 @@ contract('Ranking', function(accounts) {
             let comm2 = await this.helper.getCommitHash(1, toWei(183), 2);
             let comm3 = await this.helper.getCommitHash(1, toWei(243), 3);
 
-            let balanceBefore1 = await this.ranking.balanceOf(voters[0]);
-            let balanceBefore2 = await this.ranking.balanceOf(voters[1]);
-            let balanceBefore3 = await this.ranking.balanceOf(voters[2]);
+            let balanceBefore1 = await this.token.balanceOf(voters[0]);
+            let balanceBefore2 = await this.token.balanceOf(voters[1]);
+            let balanceBefore3 = await this.token.balanceOf(voters[2]);
 
             let fixedFee1 = await this.ranking.getFixedCommission(1);
             let fixedFee2 = await this.ranking.getFixedCommission(2);
@@ -88,15 +77,15 @@ contract('Ranking', function(accounts) {
             await this.ranking.voteCommit(2, comm3, {from: voters[2]});
             startTime = await latestTime();
 
-            await this.ranking.balanceOf(voters[0]).should.eventually.be.bignumber.equal(balanceBefore1.sub(fixedFee1).toString());
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(balanceBefore2.sub(fixedFee2).toString());
-            await this.ranking.balanceOf(voters[2]).should.eventually.be.bignumber.equal(balanceBefore3.sub(fixedFee3).toString());
+            await this.token.balanceOf(voters[0]).should.eventually.be.bignumber.equal(balanceBefore1.sub(fixedFee1).toString());
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(balanceBefore2.sub(fixedFee2).toString());
+            await this.token.balanceOf(voters[2]).should.eventually.be.bignumber.equal(balanceBefore3.sub(fixedFee3).toString());
         });
 
         it('voting reveal', async function() {
-            let balanceBefore1 = await this.ranking.balanceOf(voters[0]);
-            let balanceBefore2 = await this.ranking.balanceOf(voters[1]);
-            let balanceBefore3 = await this.ranking.balanceOf(voters[2]);
+            let balanceBefore1 = await this.token.balanceOf(voters[0]);
+            let balanceBefore2 = await this.token.balanceOf(voters[1]);
+            let balanceBefore3 = await this.token.balanceOf(voters[2]);
 
             let item = await this.ranking.getItem.call(2);
             let voting = await this.ranking.getVoting.call(item[3]);
@@ -112,9 +101,9 @@ contract('Ranking', function(accounts) {
             await this.ranking.voteReveal(2, 1, toWei(183), 2, {from: voters[1]});
             await this.ranking.voteReveal(2, 1, toWei(243), 3, {from: voters[2]});
 
-            await this.ranking.balanceOf(voters[0]).should.eventually.be.bignumber.equal(balanceBefore1.sub(flexFee1).sub(toWei(100)).toString());
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(balanceBefore2.sub(flexFee2).sub(toWei(183)).toString());
-            await this.ranking.balanceOf(voters[2]).should.eventually.be.bignumber.equal(balanceBefore3.sub(flexFee3).sub(toWei(243)).toString());
+            await this.token.balanceOf(voters[0]).should.eventually.be.bignumber.equal(balanceBefore1.sub(flexFee1).sub(toWei(100)).toString());
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(balanceBefore2.sub(flexFee2).sub(toWei(183)).toString());
+            await this.token.balanceOf(voters[2]).should.eventually.be.bignumber.equal(balanceBefore3.sub(flexFee3).sub(toWei(243)).toString());
         });
 
 
@@ -141,9 +130,9 @@ contract('Ranking', function(accounts) {
                 console.log('Info for ', voting[5][i], ': ', voterInfo);
             }
 
-            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
-            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
-            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+            console.log(voters[0], 'balance:', fromWei(await this.token.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.token.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.token.balanceOf(voters[2])));
         });
 
         it('unstake after 1s', async function() {
@@ -153,9 +142,9 @@ contract('Ranking', function(accounts) {
             await this.ranking.unstake(2, {from: voters[1]});
             await this.ranking.unstake(2, {from: voters[2]});
 
-            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
-            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
-            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+            console.log(voters[0], 'balance:', fromWei(await this.token.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.token.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.token.balanceOf(voters[2])));
         });
 
         it('unstake after 5s', async function() {
@@ -165,9 +154,9 @@ contract('Ranking', function(accounts) {
             await this.ranking.unstake(2, {from: voters[1]});
             await this.ranking.unstake(2, {from: voters[2]});
 
-            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
-            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
-            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+            console.log(voters[0], 'balance:', fromWei(await this.token.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.token.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.token.balanceOf(voters[2])));
         });
 
         it('unstake after 10s', async function() {
@@ -177,9 +166,9 @@ contract('Ranking', function(accounts) {
             await this.ranking.unstake(2, {from: voters[1]});
             await this.ranking.unstake(2, {from: voters[2]});
 
-            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
-            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
-            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+            console.log(voters[0], 'balance:', fromWei(await this.token.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.token.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.token.balanceOf(voters[2])));
         });
 
         it('unstake full', async function() {
@@ -191,27 +180,31 @@ contract('Ranking', function(accounts) {
 
             console.log('Item 2 rank:', fromWei(await this.ranking.getCurrentRank(2)));
 
-            console.log(voters[0], 'balance:', fromWei(await this.ranking.balanceOf(voters[0])));
-            console.log(voters[1], 'balance:', fromWei(await this.ranking.balanceOf(voters[1])));
-            console.log(voters[2], 'balance:', fromWei(await this.ranking.balanceOf(voters[2])));
+            console.log(voters[0], 'balance:', fromWei(await this.token.balanceOf(voters[0])));
+            console.log(voters[1], 'balance:', fromWei(await this.token.balanceOf(voters[1])));
+            console.log(voters[2], 'balance:', fromWei(await this.token.balanceOf(voters[2])));
         });
     });
 
     describe('flex fee', function () {
         before(async function() {
             await advanceBlock();
+            this.token = await Token.new();
             this.voting = await Voting.new();
             this.helper = await Helper.new();
             this.admin = await Admin.new();
             this.ranking = await Ranking.new(this.admin.address);
 
-            await this.ranking.transfer(voters[0], initialBalance);
-            await this.ranking.transfer(voters[1], initialBalance);
-            await this.ranking.transfer(voters[2], initialBalance);
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
 
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
 
             await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(50), toWei(30)]);
         });
@@ -237,18 +230,22 @@ contract('Ranking', function(accounts) {
 
         before(async function() {
             await advanceBlock();
+            this.token = await Token.new();
             this.voting = await Voting.new();
             this.helper = await Helper.new();
             this.admin = await Admin.new();
             this.ranking = await Ranking.new(this.admin.address);
 
-            await this.ranking.transfer(voters[0], initialBalance);
-            await this.ranking.transfer(voters[1], initialBalance);
-            await this.ranking.transfer(voters[2], initialBalance);
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
 
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
 
             await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(50), toWei(30)]);
         });
@@ -271,18 +268,22 @@ contract('Ranking', function(accounts) {
 
         before(async function() {
             await advanceBlock();
+            this.token = await Token.new();
             this.voting = await Voting.new();
             this.helper = await Helper.new();
             this.admin = await Admin.new();
             this.ranking = await Ranking.new(this.admin.address);
 
-            await this.ranking.transfer(voters[0], initialBalance);
-            await this.ranking.transfer(voters[1], initialBalance);
-            await this.ranking.transfer(voters[2], initialBalance);
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
 
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
 
             await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(50), toWei(30)]);
         });
@@ -313,18 +314,22 @@ contract('Ranking', function(accounts) {
 
         before(async function() {
             await advanceBlock();
+            this.token = await Token.new();
             this.voting = await Voting.new();
             this.helper = await Helper.new();
             this.admin = await Admin.new();
             this.ranking = await Ranking.new(this.admin.address);
 
-            await this.ranking.transfer(voters[0], initialBalance);
-            await this.ranking.transfer(voters[1], initialBalance);
-            await this.ranking.transfer(voters[2], initialBalance);
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
 
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
 
             await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(53), toWei(30)]);
         });
@@ -366,18 +371,22 @@ contract('Ranking', function(accounts) {
 
         before(async function() {
             await advanceBlock();
+            this.token = await Token.new();
             this.voting = await Voting.new();
             this.helper = await Helper.new();
             this.admin = await Admin.new();
             this.ranking = await Ranking.new(this.admin.address);
 
-            await this.ranking.transfer(voters[0], initialBalance);
-            await this.ranking.transfer(voters[1], initialBalance);
-            await this.ranking.transfer(voters[2], initialBalance);
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
 
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
 
             await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(1000), toWei(30)]);
 
@@ -426,18 +435,22 @@ contract('Ranking', function(accounts) {
 
         before(async function() {
             await advanceBlock();
+            this.token = await Token.new();
             this.voting = await Voting.new();
             this.helper = await Helper.new();
             this.admin = await Admin.new();
             this.ranking = await Ranking.new(this.admin.address);
 
-            await this.ranking.transfer(voters[0], initialBalance);
-            await this.ranking.transfer(voters[1], initialBalance);
-            await this.ranking.transfer(voters[2], initialBalance);
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
 
-            await this.ranking.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
 
             await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(1000), toWei(30)]);
 
