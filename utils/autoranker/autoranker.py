@@ -11,7 +11,7 @@ import re
 import json
 import random
 import time
-
+import datetime
 import hashlib
 import os.path
 import sys
@@ -24,7 +24,9 @@ from web3.exceptions import BadFunctionCallOutput
 from web3.utils.events import get_event_data
 from eth_abi import encode_abi, decode_abi
 
-import matplotlib.pyplot as plt
+import plotly
+import plotly.graph_objs as go
+
 import numpy as np
 
 import sha3
@@ -75,12 +77,11 @@ class Autoranker(object):
                      .format(self.address, self.web3.fromWei(self.eth_balance, 'ether'), self.web3.fromWei(self.crn_balance, 'ether')))
 
         self.play_params = {
-            'up_probability': 0.9, # probability to push item up or dawn
-            'max_push_stake': 20, # max voting power for pushing item
+            'up_probability': 0.5, # probability to push item up or dawn
+            'max_push_stake': 30, # max voting power for pushing item
             'accumulator': { 'simple_profit': 0,
                            }
         }
-
 
     def get_dapp_from_contract(self, dapp_id):
         dapp = {}
@@ -412,7 +413,7 @@ class Autoranker(object):
 
 
 
-    def start_moving_dapps(self, single_dapp_id, n_dapps=900):
+    def start_moving_dapps(self, single_dapp_id, n_dapps=1900):
         print("Start to play, play_params: {}".format(repr(self.play_params)))
         n = 0
 
@@ -423,7 +424,7 @@ class Autoranker(object):
 
         chosen_dapps = []
         for dapp_id in self.dapps:
-            if (int(dapp_id) % 25 == 0):
+            if (int(dapp_id) % 17 == 0):
                 chosen_dapps.append(dapp_id)
 
         while n < n_dapps:
@@ -461,23 +462,26 @@ class Autoranker(object):
 
     def load_dapps_to_contract(self):
         PACKSIZE = 32
+        
         ids_pack = []
         ranks_pack = []
-        i = 0
+        existing_ids = []
         for dapp_id in self.dapps:
             dapp = self.dapps[dapp_id]
-            #if (int(dapp_id) > 100):
-            #    continue
-
+            
             existing = self.get_dapp_from_contract(dapp_id)
             if existing is not None:
                 logger.info("DApp [{}] {}, already exists in contract, continue".format(dapp_id, dapp))
                 continue
 
-            i += 1
-            if ((i % PACKSIZE) != 0 and i < len(self.dapps)) != 0:
-                ids_pack.append(self.to_uint256(dapp_id))
-                ranks_pack.append(self.to_uint256(dapp['rank']))
+            existing_ids.append(dapp_id)
+
+        i = 0
+        for dapp_id in existing_ids:
+            i +=1
+            ids_pack.append(self.to_uint256(dapp_id))
+            ranks_pack.append(self.to_uint256(dapp['rank']))
+            if (i % PACKSIZE) != 0 and i < len(existing_ids):
                 continue
 
             # pack are full, push them
@@ -509,6 +513,22 @@ class Autoranker(object):
 
         return json.dumps(result)
 
+ 
+    def mov_func_y_from_t(self, last_y, delta_t, speed, distance):
+        moving_time = distance / speed
+        delta_y = delta_t * speed
+        if delta_t <= moving_time:
+            return last_y + delta_t * speed
+        return last_y + distance
+
+        # movement equation when object is pushed on some interval. returns coordinate where object will be 
+        # moving_function = lambda delta_t, initial_speed, interval: delta_t * initial_speed if (delta_t * initial_speed) <= interval else interval
+        # moving_function_inv = lambda delta_x, initial_speed, interval: delta_t * initial_speed if (delta_t * initial_speed) <= interval else interval
+        
+        # movement equation when object is not pushed and stays without action for some interval of time
+        # intertial_function = lambda delta_t, initial_speed, interval: 0
+
+
 
     def ranking_history(self, single_dapp_id, output_file):
 
@@ -534,23 +554,13 @@ class Autoranker(object):
         finally:
             self.web3.eth.uninstallFilter(filt.filter_id)
 
-        zero_ts = int(time.time())
-        max_ts = zero_ts
-        # movement equation when object is pushed on some interval. returns coordinate where object will be 
-        moving_function = lambda delta_t, initial_speed, interval: delta_t * initial_speed if (delta_t * initial_speed) <= interval else interval
-        
-        # movement equation when object is not pushed and stays without action for some interval of time
-        intertial_function = lambda delta_t, initial_speed, interval: 0
-
         objects_moves = {}
+        min_ts = int(time.time())
+        max_ts = 0
         for log in logs:
             m = get_event_data(event_abi, log).args
-
-            # if (m.itemId != single_dapp_id):
-            #     continue
-
-            if (m.startTime < zero_ts):
-                zero_ts = m.startTime
+            if (int(m.itemId) % 17 != 0):
+                continue
 
             if (objects_moves.get(m.itemId) is None):
                 objects_moves[m.itemId] = []
@@ -561,86 +571,90 @@ class Autoranker(object):
                 if (m.startTime >= prev_move['start']):
                     index_where_to_insert += 1
 
+            if (m.speed) == 0:
+                continue
+           
+            signed_speed = m.speed
+            if m.direction == 0:
+                signed_speed = (-1 * signed_speed)
+
             objects_moves[m.itemId].insert(index_where_to_insert, {
                                                             'start': m.startTime,
-                                                            'speed': m.speed,
+                                                            'speed': signed_speed,
                                                             'distance': m.distance,
-                                                            'mov_func': moving_function 
+                                                            'moving_time': m.distance/abs(signed_speed)
                                                             })
-            if (m.speed != 0 and (int(m.startTime + m.distance / m.speed) > max_ts)):
-                max_ts = int(m.startTime + m.distance / m.speed) + 1
+            if (m.startTime < min_ts):
+                min_ts = m.startTime
+            min_ts -= 3600
 
+            plan_end = m.startTime + round(m.distance/m.speed)
+            if (plan_end > max_ts):
+                max_ts = plan_end + 3600
 
-
-  
-        # figure(num=None, figsize=(8, 6), dpi=80, facecolor='w', edgecolor='k')
-        fig = plt.figure(figsize=(16,9), facecolor='b', edgecolor='g')
-        plt.title('DApps ranks')
-        ax = plt.subplot(111)
+        data = []
+        # MUST be sorted by start time
         for item_id in objects_moves:
-            if (item_id % 25 != 0 or item_id < 970):
-                continue
             mvs = objects_moves[item_id]
-            (x_series,y_series) = self.gen_xy_for_object(objects_moves[item_id], INIT_RANK)
-            ax.plot(x_series, y_series, label="[{}] rank".format(item_id))
+            print("Item: {}".format(item_id))
+            (x_series, y_series) = self.gen_xy_for_object(objects_moves[item_id], INIT_RANK, min_ts, max_ts)
+            name = self.dapps.get(item_id, {}).get('name')
+            data.append(go.Scatter(x=x_series, 
+                                   y=y_series,
+                                   name="[{}] {}".format(item_id, name),
+                                   line=dict(shape='linear'),
+                                  ))
             i = 0
-            # for x in x_series:
-                # print("({},{})".format(x, y_series[i]))
-
-        ax.legend()
-        fig.savefig(output_file)
- 
+        
+        layout = { 'title': 'Dapps ranks',
+                 }
+        fig = dict(data=data, layout=layout)
+        plotly.offline.plot(fig, output_type='file', filename=output_file)
+        print("Saved output plot to '{}'".format(output_file))
         return
 
     
-    def gen_xy_for_object(self, moves, init_rank):
+    def gen_xy_for_object(self, moves, init_rank, min_ts, max_ts):
 
         x_series = [] # np.arange(zero_ts, max_ts, 60)
         y_series = []
-        y = init_rank
-        cur_active_move_index = None
-        min_ts = int(time.time() + 3600*24)
-        max_ts = 0
-        start_rank = init_rank
-
-        for m in moves:
-            if m['distance'] == 0 or m['speed'] == 0:
-                continue
-            if m['start'] < min_ts:
-                min_ts = m['start']
-            time_distance = int(m['distance'] / m['speed']) # FIXME (check int or round)
-            if (m['start'] + time_distance) > max_ts:
-                max_ts = m['start'] + time_distance
+        last_y = init_rank
 
         first = True
+        if (len(moves) == 0):
+            return ([min_ts, max_ts], [init_rank, init_rank])
+
+        cur_x = min_ts
+        cur_y = init_rank
+        cur_speed = 0
+        cur_mov_ind = 0
+        x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
+        y_series.append(cur_y/1000000000000000000)
+    
+    
         for m in moves:
-            if (first is True):
-                first = False
-                x_coord = m['start'] -1
-                y_coord = start_rank
-                x_series.append(x_coord)
-                y_series.append(y_coord)
-
-            if m['distance'] == 0 or m['speed'] == 0:
-                continue
-            for x_coord in np.arange(m['start'], m['start'] + time_distance, 1):
-                y_coord += m['mov_func']((x_coord - m['start']), m['speed'], m['distance'])
-                x_series.append(x_coord)
-                y_series.append(y_coord)
-                print("Move at x:{}, move start: {} ({} from x),  speed:{}, dist: {}, time_distance: {}, got y: {})"
-                  .format(x_coord, m['start'],(x_coord - m['start']), m['speed'], m['distance'], time_distance, y_coord))
+            cur_x = m['start']
+            x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
+            y_series.append(cur_y/1000000000000000000)
             
-            x_coord = m['start'] + time_distance + 1
-            print("Intertial stop at x:{}, y: {}".format(x_coord, y_coord))
-            x_series.append(x_coord)
-            y_series.append(y_coord)
+            cur_speed += m['speed']
 
+            if (cur_speed == 0):
+                continue
+            cur_x = m['start'] + m['moving_time']
+            cur_y = self.mov_func_y_from_t(cur_y, cur_x, cur_speed, m['distance'])
+            x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
+            y_series.append(cur_y/1000000000000000000)
 
+        
+        cur_x = max_ts
+        x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
+        y_series.append(cur_y/1000000000000000000)
+        
+        i=0
+        for x in x_series:
+            print("{}, {}".format(x_series[i], y_series[i]))
+            i += 1
 
         return(x_series, y_series)
-            
-
-
-
-   
 

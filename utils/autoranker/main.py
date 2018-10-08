@@ -105,7 +105,7 @@ def main(arguments):
         return
 
 
-    their_dapps = get_json_from_url(config['dapps_import_url'])
+    their_dapps = get_json_from_url(config['dapps_import_url'], 0)
     if (not their_dapps):
         print("No dapps loaded from '{}', stop".format(config['dapps_import_url']))
         return
