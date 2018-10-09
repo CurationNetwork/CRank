@@ -424,8 +424,8 @@ class Autoranker(object):
 
         chosen_dapps = []
         for dapp_id in self.dapps:
-            if (int(dapp_id) % 17 == 0):
-                chosen_dapps.append(dapp_id)
+            # if (int(dapp_id) % 17 == 0):
+            chosen_dapps.append(dapp_id)
 
         while n < n_dapps:
             n += 1
@@ -515,9 +515,10 @@ class Autoranker(object):
 
  
     def mov_func_y_from_t(self, last_y, delta_t, speed, distance):
-        moving_time = distance / speed
-        delta_y = delta_t * speed
+        moving_time = int(distance / speed)
+        # print("dist: {}, speed: {}, delta_t: {}".format(distance, speed, delta_t))
         if delta_t <= moving_time:
+            # print("{} -> {} (speed: {})".format(last_y, last_y + delta_t * speed, speed))
             return last_y + delta_t * speed
         return last_y + distance
 
@@ -559,8 +560,6 @@ class Autoranker(object):
         max_ts = 0
         for log in logs:
             m = get_event_data(event_abi, log).args
-            if (int(m.itemId) % 17 != 0):
-                continue
 
             if (objects_moves.get(m.itemId) is None):
                 objects_moves[m.itemId] = []
@@ -642,7 +641,7 @@ class Autoranker(object):
             if (cur_speed == 0):
                 continue
             cur_x = m['start'] + m['moving_time']
-            cur_y = self.mov_func_y_from_t(cur_y, cur_x, cur_speed, m['distance'])
+            cur_y = self.mov_func_y_from_t(cur_y, cur_x - m['start'], cur_speed, m['distance'])
             x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
             y_series.append(cur_y/1000000000000000000)
 
