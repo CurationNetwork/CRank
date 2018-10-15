@@ -84,7 +84,7 @@ class Autoranker(object):
         }
 
     def get_dapp_from_contract(self, dapp_id):
-        dapp = {}
+        result_dapp = {}
         
         try:
             dapp = self.tcrank.functions.getItem(self.to_uint256(dapp_id)).call()
@@ -94,29 +94,26 @@ class Autoranker(object):
         except Exception as e:
             print("Error getting dapp info from contract {}: {}".format(dapp_id, repr(e)))
             return None
-
-        if self.dapps.get(dapp_id) is None:
-            print("DApp [{}] is not present in local dapps, creating new".format(dapp_id))
-            # ARRAY_JOPA (FIXME)
-            self.dapps[dapp_id] = {'id': dapp_id, 'address': dapp[0], 'rank': dapp[1], 'balance': dapp[2], 'voting_id': dapp[3], 'movings_ids': dapp[3]}
-        else:
-            self.dapps[dapp_id]['address'] = dapp[0]
-            self.dapps[dapp_id]['rank'] = dapp[1]
-            self.dapps[dapp_id]['balance'] = dapp[2]
-            self.dapps[dapp_id]['voting_id'] = dapp[3]
-            self.dapps[dapp_id]['movings_ids'] = dapp[4]
         
+
+        result_dapp['id'] = dapp_id
+        result_dapp['address'] = dapp[0]
+        result_dapp['rank'] = dapp[1]
+        result_dapp['balance'] = dapp[2]
+        result_dapp['voting_id'] = dapp[3]
+        result_dapp['movings_ids'] = dapp[4]
+    
         item_state_id = self.tcrank.functions.getItemState(self.to_uint256(dapp_id)).call()
-        self.dapps[dapp_id]['item_state'] = self.item_states[item_state_id]
+        result_dapp['item_state'] = self.item_states[item_state_id]
         # ARRAY_JOPA (FIXME)
         voting_id = dapp[3]
         if (voting_id != 0):
-            self.dapps[dapp_id]['voting'] = self.tcrank.functions.getVoting(voting_id).call()
+            result_dapp['voting'] = self.tcrank.functions.getVoting(voting_id).call()
             voting_state_id = self.tcrank.functions.getVotingState(voting_id).call()
-            self.dapps[dapp_id]['voting_state'] = self.voting_states[voting_state_id]
+            result_dapp['voting_state'] = self.voting_states[voting_state_id]
 
-        # print("Working dapp:\n{}".format(json.dumps(self.dapps[dapp_id], sort_keys=True, indent=4)))
-        return self.dapps[dapp_id]
+        # print("Working dapp:\n{}".format(json.dumps(result_dapp, sort_keys=True, indent=4)))
+        return result_dapp
 
 
     def show_ranking(self):
@@ -132,7 +129,7 @@ class Autoranker(object):
         for (id, rank) in zip(res[0], res[1]):
             stats['total'] += 1
             # FIXME correctly UPDATE RANKS HERE (not actual beacuse of default INIT_RANK (I just skip this items), it's wrong
-            if (str(rank) == str(INIT_RANK)):
+            if (rank == str(INIT_RANK)):
                 stats['dno'] += 1
                 continue
 
@@ -460,28 +457,40 @@ class Autoranker(object):
 
 
 
-    def load_dapps_to_contract(self):
+    def load_dapps_to_contract(self, single_dapp_id):
         PACKSIZE = 32
         
         ids_pack = []
         ranks_pack = []
-        existing_ids = []
+        new_dapps_ids = []
+        rank_updates = []
         for dapp_id in self.dapps:
             dapp = self.dapps[dapp_id]
             
+
+            if single_dapp_id is not None:
+                if str(single_dapp_id) != str(dapp_id):
+                    continue
+                
+                print("Working with single dapp: [{}] {}".format(dapp_id, dapp.get('name')))
+
             existing = self.get_dapp_from_contract(dapp_id)
             if existing is not None:
-                logger.info("DApp [{}] {}, already exists in contract, continue".format(dapp_id, dapp))
+                logger.info("DApp [{}] {}, already exists in contract with rank: {}, local rank: {}".format(dapp_id, dapp.get('name'), existing['rank'], dapp['rank']))
+                if (str(dapp['rank']) != str(existing['rank'])):
+                    logger.info("DApp [{}] {}, need to update rank from {} to {}".format(dapp_id, dapp.get('name'), existing['rank'], dapp['rank']))
+                    rank_updates.append([dapp_id, dapp['rank'], existing['rank']])
                 continue
 
-            existing_ids.append(dapp_id)
+            new_dapps_ids.append(dapp_id)
 
         i = 0
-        for dapp_id in existing_ids:
+        for dapp_id in new_dapps_ids:
             i +=1
             ids_pack.append(self.to_uint256(dapp_id))
-            ranks_pack.append(self.to_uint256(dapp['rank']))
-            if (i % PACKSIZE) != 0 and i < len(existing_ids):
+            ranks_pack.append(self.to_uint256(self.dapps[dapp_id]['rank']))
+
+            if (i % PACKSIZE) != 0 and i < len(new_dapps_ids):
                 continue
 
             # pack are full, push them
@@ -495,10 +504,32 @@ class Autoranker(object):
             signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
             tx_hash = self.web3.eth.sendRawTransaction(signed_tx.rawTransaction)
             self.web3.eth.waitForTransactionReceipt(tx_hash)
-            logger.debug("Transaction sent, sleeping")
-            time.sleep(20)
+            logger.debug("Transaction 'newItemsWithRanks' sent, sleeping")
+            time.sleep(30)
             ids_pack = []
             ranks_pack = []
+
+        return None
+
+        # update ranks for changed ranks
+        for u in sorted(rank_updates, key = lambda r: r[1], reverse=True):
+            
+            dapp_id = u[0]
+            new_rank = u[1]
+            old_rank = u[2]
+            logger.info("DApp [{}] {}, SKIIIPPP updating rank from {} to {}".format(dapp_id, self.dapps.get(dapp_id, {}).get('name'), old_rank, new_rank))
+            continue
+            tx = self.tcrank.functions.setItemLastRank(_itemId=self.to_uint256(dapp_id),
+                                                       _rank=self.to_uint256(new_rank)).buildTransaction({
+                                'gas': 3000000,
+                                'gasPrice': self.web3.toWei('2', 'gwei'),
+                                                        'nonce': self.web3.eth.getTransactionCount(self.address)
+                                                         })
+            signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
+            tx_hash = self.web3.eth.sendRawTransaction(signed_tx.rawTransaction)
+            self.web3.eth.waitForTransactionReceipt(tx_hash)
+            logger.debug("Transaction 'setItemLastRank' sent, sleeping")
+            time.sleep(30)
 
         return None
 
@@ -522,10 +553,6 @@ class Autoranker(object):
             return last_y + delta_t * speed
         return last_y + distance
 
-        # movement equation when object is pushed on some interval. returns coordinate where object will be 
-        # moving_function = lambda delta_t, initial_speed, interval: delta_t * initial_speed if (delta_t * initial_speed) <= interval else interval
-        # moving_function_inv = lambda delta_x, initial_speed, interval: delta_t * initial_speed if (delta_t * initial_speed) <= interval else interval
-        
         # movement equation when object is not pushed and stays without action for some interval of time
         # intertial_function = lambda delta_t, initial_speed, interval: 0
 
@@ -560,6 +587,7 @@ class Autoranker(object):
         max_ts = 0
         for log in logs:
             m = get_event_data(event_abi, log).args
+            print(repr(m))
 
             if (objects_moves.get(m.itemId) is None):
                 objects_moves[m.itemId] = []
@@ -595,9 +623,12 @@ class Autoranker(object):
         # MUST be sorted by start time
         for item_id in objects_moves:
             mvs = objects_moves[item_id]
-            print("Item: {}".format(item_id))
             (x_series, y_series) = self.gen_xy_for_object(objects_moves[item_id], INIT_RANK, min_ts, max_ts)
-            name = self.dapps.get(item_id, {}).get('name')
+            dapp = self.dapps.get(str(item_id))
+            if (dapp is None):
+                print("No object with id:{} in local dapps".format(item_id))
+                continue
+            name = self.dapps.get(str(item_id), {}).get('name')
             data.append(go.Scatter(x=x_series, 
                                    y=y_series,
                                    name="[{}] {}".format(item_id, name),
@@ -650,10 +681,10 @@ class Autoranker(object):
         x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
         y_series.append(cur_y/1000000000000000000)
         
-        i=0
-        for x in x_series:
-            print("{}, {}".format(x_series[i], y_series[i]))
-            i += 1
+        # i=0
+        # for x in x_series:
+        #   print("{}, {}".format(x_series[i], y_series[i]))
+        #   i += 1
 
         return(x_series, y_series)
 
