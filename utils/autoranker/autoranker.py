@@ -79,8 +79,8 @@ class Autoranker(object):
                      .format(self.address, self.web3.fromWei(self.eth_balance, 'ether'), self.web3.fromWei(self.crn_balance, 'ether')))
 
         self.play_params = {
-            'up_probability': 0.0, # probability to push item up or dawn
-            'max_push_stake': 200, # max voting power for pushing item
+            'up_probability': 0.5, # probability to push item up or dawn
+            'max_push_stake': 30, # max voting power for pushing item
             'accumulator': { 'simple_profit': 0,
                            }
         }
@@ -197,8 +197,7 @@ class Autoranker(object):
 
         # commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt]).hex()
         # print("ours   : {}".format(self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt]).hex()))
-        
-        commit_hash = "0x" + self.helper.functions.getCommitHash(isup, push_force, salt).call().hex()
+        commit_hash = self.helper.functions.getCommitHash(isup, push_force, salt).call().hex()
         # print("helpers: {}".format(commit_hash))
 
         account = random.choice(self.config['accounts'])
@@ -216,10 +215,9 @@ class Autoranker(object):
     
 
     def push_selected_dapp(self, dapp_id):
-        
         actions = []
-        
         dapp = self.get_dapp_from_contract(dapp_id)
+            
         current_ts = int(time.time())
         # get random params for push - impulse, random salt, calculate commit hash
         push_params = self.get_random_push_params(dapp['id'], current_ts)        
@@ -264,7 +262,7 @@ class Autoranker(object):
 
         if (not voting_active):
             print("DApp [{}], rank: {}, current time {}, no active voting, plan full cycle"
-                  .format(dapp_id, dapp.get('rank'), current_ts))
+                  .format(dapp['id'], dapp.get('rank'), current_ts))
             actions.append({'action': 'voteCommit',
                             'params': [dapp['id'], push_params['commit_hash']],
                             'wait': commit_ttl}); # FIXME - calculate
@@ -293,7 +291,7 @@ class Autoranker(object):
             elif (current_ts >= start_ts and current_ts <= (start_ts + commit_ttl)):
                 seconds_left = start_ts + commit_ttl - current_ts
                 print("DApp [{}], current time {} is in commit phase ({} secs left), plan full cycle"
-                      .format(dapp_id, current_ts, seconds_left))
+                      .format(dapp['id'], current_ts, seconds_left))
 
                 actions.append({'action': 'voteCommit',
                                 'params': [dapp['id'], push_params['commit_hash']],
@@ -313,7 +311,7 @@ class Autoranker(object):
             elif (current_ts >= (start_ts + commit_ttl) and current_ts <= (start_ts + commit_ttl + reveal_ttl)):
                 seconds_left = start_ts + commit_ttl + reveal_ttl - current_ts
                 print("DApp [{}], current time {} is in reveal phase ({} secs left), plan reveal cycle"
-                      .format(dapp_id, current_ts, seconds_left))
+                      .format(dapp['id'], current_ts, seconds_left))
                 actions.append({'action': 'voteReveal',
                                 'params': [dapp['id'],                                                                                       
                                            push_params['isup'],
@@ -327,14 +325,14 @@ class Autoranker(object):
             ############### FINISH PHASE #################
             elif (current_ts > (start_ts + commit_ttl + reveal_ttl)):
                 print("DApp [{}], current time {} is after finished voting ({} secs ago), plan finish voting"
-                      .format(dapp_id, current_ts, current_ts - start_ts - commit_ttl - reveal_ttl))
+                      .format(dapp['id'], current_ts, current_ts - start_ts - commit_ttl - reveal_ttl))
                 actions.append({'action': 'finishVoting',
                                 'params': [dapp['id']],
                                 'wait': 0});
 
         ################## ACTIONS READY ########################
         for a in actions:
-            dapp = self.get_dapp_from_contract(dapp_id)
+            dapp = self.get_dapp_from_contract(dapp['id'])
             print("DApp [{}], performing '{}' action".format(dapp['id'], a['action']))
             args = a.get('params', [])
             tx = None
@@ -433,12 +431,12 @@ class Autoranker(object):
         chosen_dapps = []
         for dapp_id in self.dapps:
             # if (int(dapp_id) % 17 == 0):
-            chosen_dapps.append(dapp_id)
+            chosen_dapps.append(int(dapp_id))
 
         while n < n_dapps:
             n += 1
             chosen_id = random.choice(chosen_dapps)
-            self.push_selected_dapp(chosen_id)
+            self.push_selected_dapp(int(chosen_id))
 
 
     def update_ranks_from_contract(self):
