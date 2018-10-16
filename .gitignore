@@ -65,3 +65,7 @@ installed_contracts/
 build/
 
 .idea/
+
+# Python Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]

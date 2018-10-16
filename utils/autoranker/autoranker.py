@@ -22,7 +22,8 @@ from web3.contract import ConciseContract
 from web3.middleware import geth_poa_middleware
 from web3.exceptions import BadFunctionCallOutput
 from web3.utils.events import get_event_data
-from eth_abi import encode_abi, decode_abi
+
+# from eth_abi import encode_abi, decode_abi, encode_single, decode_single
 
 import plotly
 import plotly.graph_objs as go
@@ -65,6 +66,7 @@ class Autoranker(object):
         
         self.tcrank = self.web3.eth.contract(address=self.web3.toChecksumAddress(config['tcrank_address']), abi=config['tcrank_abi'])
         self.faucet = self.web3.eth.contract(address=self.web3.toChecksumAddress(config['faucet_address']), abi=config['faucet_abi'])
+        self.helper = self.web3.eth.contract(address=self.web3.toChecksumAddress(config['helper_address']), abi=config['helper_abi'])
 
         self.eth_balance = self.web3.eth.getBalance(self.address)
         self.crn_balance = self.tcrank.functions.balanceOf(self.address).call()
@@ -77,8 +79,8 @@ class Autoranker(object):
                      .format(self.address, self.web3.fromWei(self.eth_balance, 'ether'), self.web3.fromWei(self.crn_balance, 'ether')))
 
         self.play_params = {
-            'up_probability': 0.5, # probability to push item up or dawn
-            'max_push_stake': 30, # max voting power for pushing item
+            'up_probability': 0.0, # probability to push item up or dawn
+            'max_push_stake': 200, # max voting power for pushing item
             'accumulator': { 'simple_profit': 0,
                            }
         }
@@ -183,22 +185,26 @@ class Autoranker(object):
         salt = int(random.randint(0,100000000)) # FIXME
 
         isup = 0
-        push_force = 1
         # leave push_force == 1 if impulse == 0
+        if impulse == 0:
+            impulse = 1
+
+        push_force = self.web3.toWei(impulse, 'ether')
         if (random.uniform(0, 1) <= self.play_params['up_probability']):
             isup = 1
-            push_force = impulse
         elif (impulse < 0):
-            push_force = -1 * impulse
-        
-        push_force = self.web3.toWei(push_force, 'ether')
+            push_force = -1 * push_force
 
-        commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt])
+        # commit_hash = self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt]).hex()
+        # print("ours   : {}".format(self.web3.soliditySha3(['uint256','uint256', 'uint256'], [ isup, push_force, salt]).hex()))
         
+        commit_hash = "0x" + self.helper.functions.getCommitHash(isup, push_force, salt).call().hex()
+        # print("helpers: {}".format(commit_hash))
+
         account = random.choice(self.config['accounts'])
         # FIXME 
         account['address'] = self.web3.toChecksumAddress(account['address'])
-        
+      
         return {'account': account, 
                 'isup': isup,
                 'push_force': push_force,
@@ -227,22 +233,22 @@ class Autoranker(object):
         if acc['eth_balance'] == 0:
             eth_amount = 0.3
             faucet_addr = self.config['accounts'][0]['address']
-            print("No ether on address {}, sending {} eth it from {}".format(acc['address'], faucet_addr, eth_amount))
+            print("No ether on address {}, sending {} eth it from {}".format(acc['address'], eth_amount, faucet_addr))
             actions.append({'action': 'giveEther',
                                 'params': [{'to': acc['address'], 'from': faucet_addr, 'amount': eth_amount}],
                                 'wait': 3});
 
         if acc['crn_balance'] == 0:
             crn_amount = 100
-            print("No CRN tokens on address {}, sending {} CRN from {}".format(acc['address'], faucet_addr, crn_amount))
+            print("No CRN tokens on address {}, sending {} CRN from {}".format(acc['address'], crn_amount, faucet_addr))
             actions.append({'action': 'giveTokens',
                                 'params': [{'to': acc['address'], 'from': faucet_addr, 'amount': crn_amount}],
                                 'wait': 3});
 
 
 
-        commit_ttl = 30
-        reveal_ttl = 30
+        commit_ttl = self.tcrank.functions.currentCommitTtl().call()
+        reveal_ttl = self.tcrank.functions.currentRevealTtl().call() 
         voting_active = False
 
         if (dapp.get('voting') is not None):
@@ -260,20 +266,24 @@ class Autoranker(object):
             print("DApp [{}], rank: {}, current time {}, no active voting, plan full cycle"
                   .format(dapp_id, dapp.get('rank'), current_ts))
             actions.append({'action': 'voteCommit',
-                            'params': [self.to_uint256(dapp['id']), push_params['commit_hash']],
+                            'params': [dapp['id'], push_params['commit_hash']],
                             'wait': commit_ttl}); # FIXME - calculate
             actions.append({'action': 'voteReveal',
-                            'params': [self.to_uint256(dapp['id']),                                                                                       
-                                       self.to_uint256(push_params['isup']),                                                                                             
-                                       self.to_uint256(push_params['push_force']),                                                                                       
-                                       self.to_uint256(push_params['salt'])],
+                            'params': [dapp['id'],
+                                       push_params['isup'],                                                                                             
+                                       push_params['push_force'],                                                                                       
+                                       push_params['salt']],
                             'wait': reveal_ttl}); # FIXME - calculate
 
             actions.append({'action': 'finishVoting',
-                            'params': [self.to_uint256(dapp['id'])],
+                            'params': [dapp['id']],
                             'wait': 0}); # FIXME - calculate
             
-            print("DApp [{}], plan to push with impulse: {}, seed: {}".format(dapp['id'], push_params['impulse'], push_params['seed_str']))
+            print("DApp [{}] {}, plan to push with impulse: {}, seed: {}"
+                    .format(dapp['id'],
+                            dapp.get('name'),
+                            push_params['impulse'] if push_params['isup'] != 0 else -push_params['impulse'],
+                            push_params['seed_str']))
         else:
             ########### ERROR #########################
             if (current_ts < start_ts): 
@@ -286,17 +296,17 @@ class Autoranker(object):
                       .format(dapp_id, current_ts, seconds_left))
 
                 actions.append({'action': 'voteCommit',
-                                'params': [self.to_uint256(dapp['id']), push_params['commit_hash']],
+                                'params': [dapp['id'], push_params['commit_hash']],
                                 'wait': seconds_left});
                 actions.append({'action': 'voteReveal',
-                                'params': [self.to_uint256(dapp['id']),                                                                                       
-                                           self.to_uint256(push_params['isup']),                                                                                             
-                                           self.to_uint256(push_params['push_force']),                                                                                       
-                                           self.to_uint256(push_params['salt'])],
+                                'params': [dapp['id'],                                                                                       
+                                           push_params['isup'],
+                                           push_params['push_force'],                                                                                       
+                                           push_params['salt']],
                                 'wait': reveal_ttl}); # FIXME - calculate
 
                 actions.append({'action': 'finishVoting',
-                                'params': [self.to_uint256(dapp['id'])],
+                                'params': [dapp['id']],
                                 'wait': 0});
 
             ############ REVEAL PHASE ##################
@@ -305,21 +315,21 @@ class Autoranker(object):
                 print("DApp [{}], current time {} is in reveal phase ({} secs left), plan reveal cycle"
                       .format(dapp_id, current_ts, seconds_left))
                 actions.append({'action': 'voteReveal',
-                                'params': [self.to_uint256(dapp['id']),                                                                                       
-                                           self.to_uint256(push_params['isup']),                                                                                             
-                                           self.to_uint256(push_params['push_force']),                                                                                       
-                                           self.to_uint256(push_params['salt'])],
+                                'params': [dapp['id'],                                                                                       
+                                           push_params['isup'],
+                                           push_params['push_force'],                                                                                       
+                                           push_params['salt']],
                                 'wait': seconds_left });
 
                 actions.append({'action': 'finishVoting',
-                                'params': [self.to_uint256(dapp['id'])],
+                                'params': [dapp['id']],
                                 'wait': 0});
             ############### FINISH PHASE #################
             elif (current_ts > (start_ts + commit_ttl + reveal_ttl)):
                 print("DApp [{}], current time {} is after finished voting ({} secs ago), plan finish voting"
                       .format(dapp_id, current_ts, current_ts - start_ts - commit_ttl - reveal_ttl))
                 actions.append({'action': 'finishVoting',
-                                'params': [self.to_uint256(dapp['id'])],
+                                'params': [dapp['id']],
                                 'wait': 0});
 
         ################## ACTIONS READY ########################
@@ -352,7 +362,7 @@ class Autoranker(object):
                 tx = self.tcrank.functions.voteCommit(*args)\
                                                .buildTransaction({
                                                                     'gas': 3000000,
-                                                                    'gasPrice': self.web3.toWei('1', 'gwei'),
+                                                                    'gasPrice': self.web3.toWei('2', 'gwei'),
                                                                     'nonce': self.web3.eth.getTransactionCount(self.address)
                                                                 })
 
@@ -360,7 +370,7 @@ class Autoranker(object):
                 tx = self.tcrank.functions.voteReveal(*args)\
                                                .buildTransaction({
                                                                     'gas': 4000000,
-                                                                    'gasPrice': self.web3.toWei('1', 'gwei'),
+                                                                    'gasPrice': self.web3.toWei('2', 'gwei'),
                                                                     'nonce': self.web3.eth.getTransactionCount(self.address)
                                                                 })
 
@@ -368,7 +378,7 @@ class Autoranker(object):
                 tx = self.tcrank.functions.finishVoting(*args)\
                                                .buildTransaction({
                                                                     'gas': 7300000,
-                                                                    'gasPrice': self.web3.toWei('3', 'gwei'),
+                                                                    'gasPrice': self.web3.toWei('5', 'gwei'),
                                                                     'nonce': self.web3.eth.getTransactionCount(self.address)
                                                                 })
 
@@ -377,6 +387,7 @@ class Autoranker(object):
                 continue
 
             tx_hash = None
+
             try:
                 signed_tx = self.web3.eth.account.signTransaction(tx, private_key=self.private_key)
                 a['tx_hash'] = self.web3.toHex(signed_tx.get('hash'))
@@ -571,26 +582,39 @@ class Autoranker(object):
         if event_abi is None:
             raise KeyError("No abi for event '{}' was found in ranking.abi".format(MOVING_EVENT_NAME))
 
-
         addr = self.web3.toChecksumAddress(self.config['tcrank_address'])
+        
+        # from eth_utils.abi import event_abi_to_log_topic
+	# event_signature_topic = event_abi_to_log_topic(myContract.events.Transfer.abi)
         event_signature = self.web3.sha3(text='MovingStarted(uint256,uint256,uint256,uint256,uint256,uint256,uint256)').hex()
-        filt = self.web3.eth.filter({'address': addr, 'topics': [event_signature], 'fromBlock': int(self.config['tcrank_deploy_block_no']) - 10 });
-
         logs = []
         try:
-            logs = self.web3.eth.getFilterLogs(filt.filter_id)
-        finally:
-            self.web3.eth.uninstallFilter(filt.filter_id)
+            logs = self.web3.eth.getLogs(
+                                    {
+                                        'address': addr, 
+                                        'fromBlock': int(self.config['tcrank_deploy_block_no']), 
+                                        'toBlock':'latest', 
+                                        'topics':[event_signature]
+                                    })
+        except Exception as e:
+            print("Error in 'getLogs', requesting topic {} in logs from addr: {}, block: {}".format(event_signature, addr, int(self.config['tcrank_deploy_block_no'])))
+
 
         objects_moves = {}
         min_ts = int(time.time())
         max_ts = 0
+        last_rank = None
         for log in logs:
             m = get_event_data(event_abi, log).args
-            print(repr(m))
+            if (single_dapp_id is not None and str(m.itemId) != str(single_dapp_id)):
+                continue
 
+            print(repr(m))
             if (objects_moves.get(m.itemId) is None):
                 objects_moves[m.itemId] = []
+
+            item = self.tcrank.functions.getItem(m.itemId).call()
+            last_rank = item[1]
 
             # no optimizations now
             index_where_to_insert = 0
@@ -623,7 +647,7 @@ class Autoranker(object):
         # MUST be sorted by start time
         for item_id in objects_moves:
             mvs = objects_moves[item_id]
-            (x_series, y_series) = self.gen_xy_for_object(objects_moves[item_id], INIT_RANK, min_ts, max_ts)
+            (x_series, y_series) = self.gen_xy_for_object(objects_moves[item_id], last_rank, min_ts, max_ts)
             dapp = self.dapps.get(str(item_id))
             if (dapp is None):
                 print("No object with id:{} in local dapps".format(item_id))
@@ -644,47 +668,61 @@ class Autoranker(object):
         return
 
     
-    def gen_xy_for_object(self, moves, init_rank, min_ts, max_ts):
+    def gen_xy_for_object(self, moves, last_rank, min_ts, max_ts):
 
         x_series = [] # np.arange(zero_ts, max_ts, 60)
         y_series = []
-        last_y = init_rank
 
         first = True
         if (len(moves) == 0):
-            return ([min_ts, max_ts], [init_rank, init_rank])
+            return ([min_ts, max_ts], [last_rank, last_rank])
 
         cur_x = min_ts
-        cur_y = init_rank
+        cur_y = last_rank
         cur_speed = 0
         cur_mov_ind = 0
-        x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
-        y_series.append(cur_y/1000000000000000000)
-    
-    
+   
+        # print(json.dumps(moves, sort_keys=True, indent=4))
+        ps = {}
         for m in moves:
-            cur_x = m['start']
-            x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
-            y_series.append(cur_y/1000000000000000000)
-            
-            cur_speed += m['speed']
-
-            if (cur_speed == 0):
+            if m['distance'] == 0:
                 continue
-            cur_x = m['start'] + m['moving_time']
-            cur_y = self.mov_func_y_from_t(cur_y, cur_x - m['start'], cur_speed, m['distance'])
-            x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
-            y_series.append(cur_y/1000000000000000000)
+            cur_x = m['start']
+            ps[cur_x] = ps.get(cur_x, 0) + m['speed']
+            cur_x += m['moving_time']
+            ps[cur_x] = ps.get(cur_x, 0) - m['speed']
 
-        
-        cur_x = max_ts
-        x_series.append(datetime.datetime.utcfromtimestamp(cur_x))
-        y_series.append(cur_y/1000000000000000000)
-        
-        # i=0
-        # for x in x_series:
-        #   print("{}, {}".format(x_series[i], y_series[i]))
-        #   i += 1
+        cur_speed = 0
+        for x in sorted(ps, reverse=False):
+            cur_speed += ps[x]
+            ps[x] = cur_speed
+            # print(repr([x, ps[x]]))
 
+        # now we have an array with [ts, current_speed], last_rank and last speed
+        # but we don't know initital rankm so, we need to build series from zero rank
+        # and then "patch" all ranks, according to last rank
+        
+        xa = []
+        ya = []
+        cur_x = 0
+        cur_rank = 0
+        cur_speed = 0
+        for x in sorted(ps, reverse=False):
+            delta_x = x - cur_x
+            delta_rank = delta_x * ps[x]
+
+            cur_rank += delta_rank
+            cur_x += delta_x
+            xa.append(cur_x)
+            ya.append(cur_rank)
+
+        # patch rank
+        diff = last_rank - cur_rank
+        ya = [(r + diff) for r in ya]
+
+        for x,y in zip(xa, ya):
+            x_series.append(x)
+            y_series.append(round(y/1000000000000000000))
+       
         return(x_series, y_series)
 

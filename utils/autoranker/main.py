@@ -34,10 +34,16 @@ def get_config(args):
         "eth_http_node": "https://rinkeby.infura.io/v3/1474ceef2da44edbac41a2efd66ee882",
         # "eth_http_node": "http://10.100.11.24:8545",
 
+
         # "tcrank_address": "0x6a91ff9271406d421c75e6b6dd04fb1f7857cb30",
         # "tcrank_deploy_block_no": "3148631",
         # "faucet_address": "0xf41c3d0e08b10930ae85144a7b98231bc1f22e21",
 
+        # "tcrank_address": "0xdd5c07c484778ae52b5e60999bf625a998c265b4",
+
+        "helper_address": "0x8266a0b43c171e645bb56f8a76c4e6ef4b5fad5d",
+        
+        # LAST
         "tcrank_address": "0xb6c77b0365a3f5830579dea88126d3a77f4e8587",
         "tcrank_deploy_block_no": "3164581",
         "faucet_address": "0x3171fa7390f083fa40a7184b0a51e344c4f83d23",
@@ -50,6 +56,9 @@ def get_config(args):
 
     with open("../../solidity/smartz/faucet.abi") as json_data:
         config['faucet_abi'] = json.load(json_data)
+
+    with open("../../solidity/smartz/helper.abi") as json_data:
+        config['helper_abi'] = json.load(json_data)
 
     if (args.keys_file):
         config['keys_file'] = args.keys_file.name
