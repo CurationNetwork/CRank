@@ -79,8 +79,8 @@ class Autoranker(object):
                      .format(self.address, self.web3.fromWei(self.eth_balance, 'ether'), self.web3.fromWei(self.crn_balance, 'ether')))
 
         self.play_params = {
-            'up_probability': 1.0, # probability to push item up or dawn
-            'max_push_stake': 30, # max voting power for pushing item
+            'up_probability': 0.5, # probability to push item up or dawn
+            'max_push_stake': 20, # max voting power for pushing item
             'accumulator': { 'simple_profit': 0,
                            }
         }
@@ -610,11 +610,6 @@ class Autoranker(object):
             if (objects_moves.get(m.itemId) is None):
                 objects_moves[m.itemId] = []
 
-            item = self.tcrank.functions.getItem(m.itemId).call()
-
-            last_rank = round(item[1]/1000000000000000000)
-            print("DApp [{}], last_rank: {}".format(m.itemId, last_rank))
-
             # no optimizations now
             index_where_to_insert = 0
             for prev_move in objects_moves[m.itemId]:
@@ -649,7 +644,10 @@ class Autoranker(object):
         data = []
         # MUST be sorted by start time
         for item_id in objects_moves:
-            mvs = objects_moves[item_id]
+            mvs = objects_moves[item_id]            
+            item = self.tcrank.functions.getItem(item_id).call()
+            last_rank = round(item[1]/1000000000000000000)
+            # print("DApp [{}], last_rank: {}".format(m.itemId, last_rank))
             (x_series, y_series) = self.gen_xy_for_object(objects_moves[item_id], last_rank, min_ts, max_ts)
             dapp = self.dapps.get(str(item_id))
             if (dapp is None):
@@ -677,56 +675,33 @@ class Autoranker(object):
         y_series = []
 
         first = True
-        if (len(moves) == 0):
-            return ([min_ts, max_ts], [last_rank, last_rank])
+        # if (len(moves) == 0):
+        #     return ([min_ts, max_ts], [last_rank, last_rank])
 
         cur_x = min_ts
-        cur_y = last_rank
-        cur_speed = 0
-        cur_mov_ind = 0
-   
         # print(json.dumps(moves, sort_keys=True, indent=4))
-        ps = {}
-        for m in moves:
-            cur_x = m['start']
-            ps[cur_x] = ps.get(cur_x, 0) + m['speed']
-            cur_x += m['moving_time']
-            ps[cur_x] = ps.get(cur_x, 0) - m['speed']
-
-        print(repr(moves))
-        print(repr(ps))
-        cur_speed = 0
-        for x in sorted(ps, reverse=False):
-            cur_speed += ps[x]
-            ps[x] = cur_speed
-            # print(repr([x, ps[x]]))
-
-        # now we have an array with [ts, current_speed], last_rank and last speed
-        # but we don't know initital rankm so, we need to build series from zero rank
-        # and then "patch" all ranks, according to last rank
-        
         xa = []
         ya = []
-        cur_x = 0
         cur_rank = 0
-        cur_speed = 0
-        first = True
-        for x in sorted(ps, reverse=False):
-            if first == True:
-                cur_x = x 
+        for m in moves: # sorted and neperesekay-time
+            if first:
+                xa.append(cur_x)
+                ya.append(cur_rank)
                 first = False
-            #    xa.append(round(cur_x))
-            #    ya.append(round(cur_rank))
-
-            delta_x = x - cur_x
-            delta_rank = delta_x * ps[x]
-            print("delta_rank: {}, delta_x: {}, speed: {}".format(delta_rank, delta_x, ps[x]))
-
-            cur_rank += delta_rank
+            cur_x = m['start']
+            xa.append(cur_x)
+            ya.append(cur_rank)
+            delta_x = abs(m['distance'] / m['speed'])
+            delta_rank = m['distance'] if m['speed'] >= 0 else -1 * m['distance']
+            # print("speed: {}, deltarank: {}".format(m['speed'], delta_rank))
             cur_x += delta_x
-            xa.append(round(cur_x))
-            ya.append(round(cur_rank))
+            cur_rank += delta_rank
+            xa.append(cur_x)
+            ya.append(cur_rank)
 
+
+        xa.append(max_ts)
+        ya.append(cur_rank)
 
         # patch rank
         diff = last_rank - cur_rank
@@ -736,9 +711,8 @@ class Autoranker(object):
         # ya.append(last_rank)
        
         for x,y in zip(xa, ya):
-            x_series.append(x)
+            x_series.append(round(x))
             y_series.append(round(y))
-            print("{}, {}".format(x, round(y)))
-        return(xa,ya)
+            # print("{}, {}".format(x, round(y)))
         return(x_series, y_series)
 
