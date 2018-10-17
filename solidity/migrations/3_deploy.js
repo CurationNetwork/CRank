@@ -1,35 +1,37 @@
-let Voting = artifacts.require("./VotingPoll.sol");
+let Voting = artifacts.require("./Voting.sol");
 let Ranking = artifacts.require("./Ranking.sol");
 let Faucet = artifacts.require("./Faucet.sol");
 let Admin = artifacts.require("./Admin.sol");
 let Token = artifacts.require("./Token.sol");
 
-// dynamicFeeLinearRate, dynamicFeeLinearPrecision, maxOverStakeFactor,
-// maxFixedFeeRate, maxFixedFeePrecision, unstakeSpeed,
-// currentCommitTtl, currentRevealTtl, initialAvgStake
-let rankingParams = [ 1, 100, 100, 1, 10, web3.toWei(0.05), 30, 30, web3.toWei(300) ];
-let totalSupply = web3.toWei(1000000);
-let faucetRate = 3600;
-let faucetSize = web3.toWei(1000);
+//unstakeSpeed, currentCommitTtl, currentRevealTtl, initialAvgStake
+let rankingParams = [web3.toWei(0.05), 30, 30, web3.toWei(0)];
 
-module.exports = async function(deployer, network, accounts) {
+// dynamicFeeLinearRate, dynamicFeeLinearPrecision, maxOverStakeFactor, maxFixedFeeRate, maxFixedFeePrecision,
+let votingParams = [2, 100, 100, 2, 100];
+
+let totalSupply = web3.toWei(1000000);
+let faucetSize = web3.toWei(1000);
+let faucetRate = 3600;
+
+module.exports = async function(deployer) {
     let voting, ranking, faucet, admin, token;
 
     deployer.then(function() {
-        return Voting.new();
+        return Admin.new();
+    }).then(function(instance) {
+        admin = instance;
+        console.log('Admin:', admin.address);
+
+        return Voting.new(admin.address);
     }).then(function(instance) {
         voting = instance;
         console.log('Voting:', voting.address);
 
-        return Admin.new();
-    }).then(function(instance) {
-        admin = instance;
-        console.log('Admin:', voting.address);
-
         return Token.new();
     }).then(function(instance) {
         token = instance;
-        console.log('Token:', admin.address);
+        console.log('Token:', token.address);
 
         return Ranking.new(admin.address);
     }).then(function(instance) {
@@ -44,6 +46,10 @@ module.exports = async function(deployer, network, accounts) {
         return ranking.init(voting.address, token.address, ...rankingParams);
     }).then(async function () {
         console.log('Ranking inited');
+
+        return voting.init(ranking.address, ...votingParams);
+    }).then(async function () {
+        console.log('Voting inited');
 
         return faucet.init(ranking.address);
     }).then(async function () {

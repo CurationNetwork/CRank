@@ -73,7 +73,7 @@ library Helper {
         uint _maxOverStakeFactor, uint _totalSupply, uint _stake, uint _avgStake
     )
         public
-        view
+        pure
         returns (uint)
     {
         if (_stake <= _avgStake)

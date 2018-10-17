@@ -2,7 +2,7 @@ pragma solidity ^0.4.23;
 
 import 'zeppelin-solidity/contracts/token/ERC20/ERC20.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
-import './IVotingPoll.sol';
+import './Voting.sol';
 import './Admin.sol';
 import './Helper.sol';
 
@@ -11,30 +11,6 @@ contract Ranking {
 
     using SafeMath for uint;
 
-    event VotingStarted(
-        uint itemId,
-        uint votingId,
-        uint startTime
-    );
-
-    event VoteCommit(
-        uint itemId,
-        uint votingId,
-        address voter
-    );
-
-    event VoteReveal(
-        uint itemId,
-        uint votingId,
-        address voter,
-        uint direction,
-        uint stake
-    );
-
-    event VotingFinished(
-        uint itemId,
-        uint votingId
-    );
 
     event MovingStarted(
         uint itemId,
@@ -54,30 +30,6 @@ contract Ranking {
 
 
     enum ItemState { None, Voting }
-    enum VotingState { Commiting, Revealing, Finished }
-
-
-    struct VoterInfo {
-        uint direction;
-        uint stake;
-        uint unstaked;
-        uint prize;
-        bool isWinner;
-    }
-
-    struct Voting {
-        uint fixedFee;
-        uint unstakeSpeed;
-        uint commitTtl;
-        uint revealTtl;
-        uint startTime;
-        uint totalPrize;
-        uint pollId;
-        uint avgStake;
-
-        address[] votersAddresses;
-        mapping (address => VoterInfo) voters;
-    }
 
     struct Moving {
         uint startTime;
@@ -99,31 +51,21 @@ contract Ranking {
     mapping (uint => Item) public Items;
     uint[] public ItemsIds;
 
-    uint public VotingsLastId = 1;
-    mapping (uint => Voting) public Votings;
-
     uint public MovingsLastId = 1;
     mapping (uint => Moving) public Movings;
 
 
-    uint public stakesCounter = 1;
+    uint public stakesCounter = 0;
     uint public maxRank;
     uint public avgStake;
 
-    IVotingPoll votingContract;
+    Voting votingContract;
     Admin accessContract;
     ERC20 tokenContract;
 
 
     /* constants */
-    uint public dynamicFeeLinearRate;
-    uint public dynamicFeeLinearPrecision;
-    uint public maxOverStakeFactor;
-
-    uint public maxFixedFeeRate;
-    uint public maxFixedFeePrecision;
-
-    uint public initialUnstakeSpeed;
+    uint public initialMovingSpeed;
 
     uint public currentCommitTtl;
     uint public currentRevealTtl;
@@ -133,25 +75,16 @@ contract Ranking {
         accessContract = Admin(accessContractAddress);
     }
 
-    function init(address votingContractAddress, address tokenContractAddress,
-                uint dynamicFeeLinearRate_, uint dynamicFeeLinearPrecision_, uint maxOverStakeFactor_,
-                uint maxFixedFeeRate_, uint maxFixedFeePrecision_, uint initialUnstakeSpeed_,
+    function init(address votingContractAddress, address tokenContractAddress, uint initialMovingSpeed_,
                 uint currentCommitTtl_, uint currentRevealTtl_, uint initialAvgStake_
     )
         public
         onlyOwner
     {
-        votingContract = IVotingPoll(votingContractAddress);
+        votingContract = Voting(votingContractAddress);
         tokenContract = ERC20(tokenContractAddress);
 
-        dynamicFeeLinearRate = dynamicFeeLinearRate_;
-        dynamicFeeLinearPrecision = dynamicFeeLinearPrecision_;
-        maxOverStakeFactor = maxOverStakeFactor_;
-
-        maxFixedFeeRate = maxFixedFeeRate_;
-        maxFixedFeePrecision = maxFixedFeePrecision_;
-
-        initialUnstakeSpeed = initialUnstakeSpeed_;
+        initialMovingSpeed = initialMovingSpeed_;
 
         currentCommitTtl = currentCommitTtl_;
         currentRevealTtl = currentRevealTtl_;
@@ -171,11 +104,6 @@ contract Ranking {
         _;
     }
 
-    modifier onlyExistVoting(uint votingId) {
-        require(Votings[votingId].startTime != 0);
-        _;
-    }
-
     modifier onlyExistMoving(uint movingId) {
         require(Movings[movingId].startTime != 0);
         _;
@@ -183,11 +111,6 @@ contract Ranking {
 
     modifier onlyItemOwner(uint _itemId) {
         require(Items[_itemId].owner == msg.sender);
-        _;
-    }
-
-    modifier onlyFinishedVoting(uint votingId) {
-        require(getVotingState(votingId) == VotingState.Finished);
         _;
     }
 
@@ -217,40 +140,28 @@ contract Ranking {
             return ItemState.Voting;
     }
 
-    function getVotingState(uint _votingId)
-        public
-        view
-        onlyExistVoting(_votingId)
-        returns (VotingState)
-    {
-        Voting storage voting = Votings[_votingId];
-
-        if (voting.startTime + voting.commitTtl + voting.revealTtl < now)
-            return VotingState.Finished;
-        if (voting.startTime + voting.commitTtl < now)
-            return VotingState.Revealing;
-
-        return VotingState.Commiting;
-    }
-
     function getFixedCommission(uint _itemId)
         public
         view
         onlyExistItem(_itemId)
         returns (uint)
     {
-        return Helper.calculateFixedCommission(maxFixedFeeRate, maxFixedFeePrecision, avgStake, maxRank, getCurrentRank(_itemId));
+        return votingContract.getFixedCommission(avgStake, maxRank, getCurrentRank(_itemId));
     }
 
-    function getDynamicCommission(uint _stake, uint _avgStake)
+    function getDynamicCommission(uint _itemId, uint _stake)
         public
         view
         returns (uint)
     {
-        return Helper.calculateDynamicCommission(maxFixedFeeRate, maxFixedFeePrecision, maxOverStakeFactor, tokenContract.totalSupply(), _stake, _avgStake);
+        if (Items[_itemId].votingId != 0) {
+            return votingContract.getDynamicCommissionByVoting(Items[_itemId].votingId, tokenContract.totalSupply(), _stake);
+        }
+
+        return votingContract.getDynamicCommission(avgStake, tokenContract.totalSupply(), _stake);
     }
 
-    function getRankForTimestamp(uint _itemId, uint _timestamp)
+    function getRankForTimestamp(uint _itemId, uint _timestamp) // expect ts >= now
         public
         view
         onlyExistItem(_itemId)
@@ -288,12 +199,12 @@ contract Ranking {
         return getRankForTimestamp(_itemId, now);
     }
 
-    function getUnstakeSpeed()
+    function getMovingSpeed()
         public
         view
         returns (uint)
     {
-        return initialUnstakeSpeed;  //TODO dynamic change
+        return initialMovingSpeed; //TODO dynamic change
     }
 
     function getItemsWithRank()
@@ -337,56 +248,6 @@ contract Ranking {
         );
     }
 
-    function getVoting(uint _votingId)
-        public
-        view
-        onlyExistVoting(_votingId)
-        returns (
-            uint fixedFee,
-            uint unstakeSpeed,
-            uint commitTtl,
-            uint revealTtl,
-            uint startTime,
-            uint totalPrize,
-            uint avgStake,
-            address[] votersAddresses
-        )
-    {
-        Voting storage voting = Votings[_votingId];
-        return (
-            voting.fixedFee,
-            voting.unstakeSpeed,
-            voting.commitTtl,
-            voting.revealTtl,
-            voting.startTime,
-            voting.totalPrize,
-            voting.avgStake,
-            voting.votersAddresses
-        );
-    }
-
-    function getVoterInfo(uint _votingId, address _voter)
-        public
-        view
-        onlyExistVoting(_votingId)
-        returns (
-            uint direction,
-            uint stake,
-            uint unstaked,
-            uint prize,
-            bool isWinner
-        )
-    {
-        VoterInfo storage info = Votings[_votingId].voters[_voter];
-        return (
-            info.direction,
-            info.stake,
-            info.unstaked,
-            info.prize,
-            info.isWinner
-        );
-    }
-
     function getMoving(uint _movingId)
         public
         view
@@ -426,6 +287,9 @@ contract Ranking {
             item.lastRank = _ranks[i];
 
             avgStake = Helper.calculateNewAvgStake(avgStake, _ranks[i], stakesCounter++);
+
+            if (maxRank < _ranks[i])
+                maxRank = _ranks[i];
         }
     }
 
@@ -442,7 +306,7 @@ contract Ranking {
         public
         onlySuperuser
     {
-        initialUnstakeSpeed = _speed;
+        initialMovingSpeed = _speed;
     }
 
     function setTtl(uint _commitTtl, uint _revealTtl)
@@ -457,6 +321,7 @@ contract Ranking {
     /* LISTING FUNCTIONS */
     function newItem(uint _id)
         public
+        onlySuperuser
         onlyNotExistItem(_id)
     {
         Item storage item = Items[_id];
@@ -484,49 +349,30 @@ contract Ranking {
         Item storage item = Items[_itemId];
 
         if (item.votingId == 0) {
-            item.votingId = newVoting(_itemId);
+            item.votingId = votingContract.startVoting(_itemId, item.balance, currentCommitTtl, currentRevealTtl,
+                getMovingSpeed(), avgStake, maxRank, getCurrentRank(_itemId));
 
-            emit VotingStarted(_itemId, item.votingId, now);
+            item.balance = 0;
         }
 
-        require(getVotingState(item.votingId) == VotingState.Commiting);
-        Voting storage voting = Votings[item.votingId];
+        require(votingContract.getVotingState(item.votingId) == Voting.VotingState.Commiting);
 
-        require(pay(msg.sender, voting.fixedFee));
-        voting.totalPrize = voting.totalPrize.add(voting.fixedFee);
-
-        voting.votersAddresses.push(msg.sender);
-
-        votingContract.commitVote(voting.pollId, _commitment, msg.sender);
+        require(pay(msg.sender, votingContract.commitVote(item.votingId, _commitment, msg.sender)));
 
         removeOldMovings(_itemId);
-
-        emit VoteCommit(_itemId, item.votingId, msg.sender);
     }
 
-    function voteReveal(uint _itemId, uint8 _direction, uint _stake, uint _salt)
+    function voteReveal(uint _itemId, uint _direction, uint _stake, uint _salt)
         public
         onlyExistItem(_itemId)
     {
         Item storage item = Items[_itemId];
         require(getItemState(_itemId) == ItemState.Voting);
-        require(getVotingState(item.votingId) == VotingState.Revealing);
+        require(votingContract.getVotingState(item.votingId) == Voting.VotingState.Revealing);
 
-        Voting storage voting = Votings[item.votingId];
-
-        uint fee = getDynamicCommission(_stake, voting.avgStake);
-        require(pay(msg.sender, fee.add(_stake)));
-        voting.totalPrize = voting.totalPrize.add(fee);
-
-        VoterInfo storage voterInfo = voting.voters[msg.sender];
-        voterInfo.stake = _stake;
-        voterInfo.direction = _direction;
-
-        votingContract.revealVote(voting.pollId, _direction, _stake, _salt, msg.sender);
+        require(pay(msg.sender, votingContract.revealVote(item.votingId, _direction, _stake, _salt, msg.sender, tokenContract.totalSupply())));
 
         avgStake = Helper.calculateNewAvgStake(avgStake, _stake, stakesCounter++);
-
-        emit VoteReveal(_itemId, item.votingId, msg.sender, _direction, _stake);
     }
 
     function finishVoting(uint _itemId)
@@ -534,32 +380,23 @@ contract Ranking {
         onlyExistItem(_itemId)
     {
         require(getItemState(_itemId) == ItemState.Voting);
-        require(getVotingState(Items[_itemId].votingId) == VotingState.Finished);
+        require(votingContract.getVotingState(Items[_itemId].votingId) == Voting.VotingState.Finished);
 
         Item storage item = Items[_itemId];
 
-        sendPrizesOrUnstake(item.votingId);
+        var (direction, distance, speed) = votingContract.finishVoting(item.votingId);
 
-        Voting storage voting = Votings[item.votingId];
-
-        uint votesUp;
-        uint votesDown;
-        (votesUp, votesDown) = votingContract.getPollResult(voting.pollId);
-
-        uint _direction = votesUp > votesDown ? 1 : 0;
-        uint distance = votesUp > votesDown ? votesUp - votesDown : votesDown - votesUp;
-
-        if (_direction == 0) {
-            distance = distanceWithCheckUnderZero(_itemId, distance, voting.unstakeSpeed);
+        if (direction == 0) {
+            distance = distanceWithCheckUnderZero(_itemId, distance, speed);
         }
 
-        uint movingId = newMoving(now, voting.unstakeSpeed, distance, _direction, item.votingId);
+        sendPrizesOrUnstake(item.votingId);
+
+        uint movingId = newMoving(now, speed, distance, direction, item.votingId);
         item.movingsIds.push(movingId);
         item.votingId = 0;
 
-        emit MovingStarted(_itemId, item.votingId, movingId, now, distance, _direction, voting.unstakeSpeed);
-
-        emit VotingFinished(_itemId, item.votingId);
+        emit MovingStarted(_itemId, item.votingId, movingId, now, distance, direction, speed);
     }
 
     function unstake(uint _itemId)
@@ -568,77 +405,23 @@ contract Ranking {
         for (uint i = 0; i < Items[_itemId].movingsIds.length; ++i) {
             Moving storage moving = Movings[Items[_itemId].movingsIds[i]];
 
-            if (Votings[moving.votingId].voters[msg.sender].stake != 0) {
-                VoterInfo storage voterInfo = Votings[moving.votingId].voters[msg.sender];
+            uint stake = votingContract.getVoterStake(moving.votingId, msg.sender);
 
-                if (voterInfo.stake <= voterInfo.unstaked)
-                    continue;
+            if (stake != 0) {
+                uint forUnstake = stake;
 
-                if ((now.sub(moving.startTime)).mul(moving.speed) >= moving.distance) {
-                    require(send(msg.sender, voterInfo.stake - voterInfo.unstaked));
-                    voterInfo.unstaked = voterInfo.stake;
+                uint movedDistance = now.sub(moving.startTime).mul(moving.speed);
+                if (movedDistance < moving.distance) {
+                    forUnstake = stake.mul(movedDistance).div(moving.distance);
                 }
-                else {
-                    uint movedDistance = now.sub(moving.startTime).mul(moving.speed);
-                    uint forUnstake = voterInfo.stake.mul(movedDistance).div(moving.distance);
 
-                    if (forUnstake > voterInfo.unstaked) {
-                        require(send(msg.sender, forUnstake - voterInfo.unstaked));
-                        voterInfo.unstaked = forUnstake;
-                    }
-                }
+                require(send(msg.sender, votingContract.unstake(moving.votingId, msg.sender, forUnstake)));
             }
         }
     }
 
-
-    /* INTERNAL FUNCTIONS */
-    function newVoting(uint _itemId)
-        internal
-        returns (uint)
-    {
-        uint votingId = VotingsLastId++;
-        Voting storage voting = Votings[votingId];
-        Item storage item = Items[_itemId];
-
-        voting.startTime = now;
-        voting.fixedFee = getFixedCommission(_itemId);
-        voting.unstakeSpeed = getUnstakeSpeed();
-        voting.commitTtl = currentCommitTtl;
-        voting.revealTtl = currentRevealTtl;
-        voting.avgStake = avgStake;
-
-        voting.totalPrize = item.balance;
-        item.balance = 0;
-
-
-        voting.pollId = votingContract.startPoll(
-            _itemId,
-            voting.commitTtl,
-            voting.revealTtl
-        );
-
-        return votingId;
-    }
-
-    function newMoving(uint _startTime, uint _speed, uint _distance, uint _direction, uint _votingId)
-        internal
-        returns (uint)
-    {
-        uint movingId = MovingsLastId++;
-        Moving storage moving = Movings[movingId];
-
-        moving.startTime = _startTime;
-        moving.speed = _speed;
-        moving.distance = _distance;
-        moving.direction = _direction;
-        moving.votingId = _votingId;
-
-        return movingId;
-    }
-
     function removeOldMovings(uint _itemId)
-        internal
+        public
     {
         Item storage item = Items[_itemId];
 
@@ -658,8 +441,8 @@ contract Ranking {
 
                 emit MovingRemoved(_itemId, moving.votingId, item.movingsIds[i]);
 
-                delete Votings[moving.votingId];
                 delete Movings[item.movingsIds[i]];
+                votingContract.removeVoting(moving.votingId);
 
                 item.movingsIds[i] = item.movingsIds[item.movingsIds.length - 1];
                 item.movingsIds.length--;
@@ -668,46 +451,65 @@ contract Ranking {
         }
     }
 
+    /* INTERNAL FUNCTIONS */
+
+    function newMoving(uint _startTime, uint _speed, uint _distance, uint _direction, uint _votingId)
+        internal
+        returns (uint)
+    {
+        uint movingId = MovingsLastId++;
+        Moving storage moving = Movings[movingId];
+
+        moving.startTime = _startTime;
+        moving.speed = _speed;
+        moving.distance = _distance;
+        moving.direction = _direction;
+        moving.votingId = _votingId;
+
+        return movingId;
+    }
+
     function unstakeForAllVoters(uint _votingId)
         internal
     {
-        Voting storage voting = Votings[_votingId];
+        address[] memory voters = votingContract.getVoters(_votingId);
 
-        for (uint i = 0; i < voting.votersAddresses.length; ++i) {
-            VoterInfo storage voter = voting.voters[voting.votersAddresses[i]];
-
-            if (voter.stake > voter.unstaked) {
-                require(send(voting.votersAddresses[i], voter.stake.sub(voter.unstaked)));
-                voter.unstaked = voter.stake;
+        for (uint i = 0; i < voters.length; ++i) {
+            uint stake = votingContract.getVoterStake(_votingId, voters[i]);
+            if (stake > 0) {
+                require(send(voters[i], votingContract.unstake(_votingId, voters[i], stake)));
             }
         }
     }
 
+    event DebugLoose (address voter, uint stake);
+    event DebugWin (address voter, uint reward);
+    event DebugLength (uint l, uint votingId);
+
     function sendPrizesOrUnstake(uint _votingId)
         internal
     {
-        Voting storage voting = Votings[_votingId];
+        address[] memory voters = votingContract.getVoters(_votingId);
 
-        for (uint i = 0; i < voting.votersAddresses.length; ++i) {
-            if (votingContract.isWinner(voting.pollId, voting.votersAddresses[i])) {
-                uint prize = Helper.calculatePrize(voting.totalPrize,
-                                            votingContract.getOverallStake(voting.pollId),
-                                            voting.voters[voting.votersAddresses[i]].stake);
+        emit DebugLength(voters.length, _votingId);
 
-                voting.voters[voting.votersAddresses[i]].isWinner = true;
-                require(send(voting.votersAddresses[i], prize));
+        for (uint i = 0; i < voters.length; ++i) {
+            if (votingContract.isWinner(_votingId, voters[i])) {
+                uint reward = votingContract.claimReward(_votingId, voters[i]);
+                emit DebugWin(voters[i], reward);
+                require(send(voters[i], reward));
             }
             else {
-                if (voting.voters[voting.votersAddresses[i]].stake > 0) {
-                    require(send(voting.votersAddresses[i], voting.voters[voting.votersAddresses[i]].stake));
-                    voting.voters[voting.votersAddresses[i]].unstaked = voting.voters[voting.votersAddresses[i]].stake;
-                }
+                uint stake = votingContract.unstakeAll(_votingId, voters[i]);
+                emit DebugLoose(voters[i], stake);
+                require(send(voters[i], stake));
             }
         }
     }
 
     function distanceWithCheckUnderZero(uint _itemId, uint _distance, uint _speed)
         internal
+        view
         returns (uint)
     {
         Item storage item = Items[_itemId];
@@ -743,6 +545,9 @@ contract Ranking {
     {
         assert(_to != address(0));
 
+        if (_value == 0)
+            return true;
+
         return tokenContract.transfer(_to, _value);
     }
 
@@ -752,6 +557,9 @@ contract Ranking {
     {
         assert(_from != address(0));
         assert(_value <= tokenContract.allowance(_from, this));
+
+        if (_value == 0)
+            return true;
 
         return tokenContract.transferFrom(_from, this, _value);
     }
