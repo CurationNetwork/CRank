@@ -110,6 +110,14 @@ contract Faucet {
         emit FaucetSended(msg.sender, faucetSize);
     }
 
+    function withdraw(uint amount, address receiver)
+        public
+        onlyOwner
+    {
+        require(amount <= getBalance());
+        require(token.transfer(receiver, amount));
+    }
+
     function destruct()
         public
         onlyOwner
