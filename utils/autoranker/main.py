@@ -158,7 +158,7 @@ def main(arguments):
         autoranker.show_ranking()
         return
 
-    single_dapp_id = args.dapp_id
+    single_dapp_id = int(args.dapp_id) if args.dapp_id is not None else None
     if (args.ranking_history == True):
         output_file = args.ranking_history_output_png
         autoranker.ranking_history(single_dapp_id, output_file)

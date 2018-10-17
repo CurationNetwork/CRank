@@ -79,7 +79,7 @@ class Autoranker(object):
                      .format(self.address, self.web3.fromWei(self.eth_balance, 'ether'), self.web3.fromWei(self.crn_balance, 'ether')))
 
         self.play_params = {
-            'up_probability': 0.5, # probability to push item up or dawn
+            'up_probability': 1.0, # probability to push item up or dawn
             'max_push_stake': 30, # max voting power for pushing item
             'accumulator': { 'simple_profit': 0,
                            }
@@ -607,12 +607,13 @@ class Autoranker(object):
             if (single_dapp_id is not None and str(m.itemId) != str(single_dapp_id)):
                 continue
 
-            print(repr(m))
             if (objects_moves.get(m.itemId) is None):
                 objects_moves[m.itemId] = []
 
             item = self.tcrank.functions.getItem(m.itemId).call()
-            last_rank = item[1]
+
+            last_rank = round(item[1]/1000000000000000000)
+            print("DApp [{}], last_rank: {}".format(m.itemId, last_rank))
 
             # no optimizations now
             index_where_to_insert = 0
@@ -622,6 +623,9 @@ class Autoranker(object):
 
             if (m.speed) == 0:
                 continue
+            
+            if (m.distance) == 0:
+                continue
            
             signed_speed = m.speed
             if m.direction == 0:
@@ -629,17 +633,18 @@ class Autoranker(object):
 
             objects_moves[m.itemId].insert(index_where_to_insert, {
                                                             'start': m.startTime,
-                                                            'speed': signed_speed,
-                                                            'distance': m.distance,
+                                                            'speed': signed_speed/1000000000000000000,
+                                                            'distance': m.distance/1000000000000000000,
                                                             'moving_time': m.distance/abs(signed_speed)
                                                             })
             if (m.startTime < min_ts):
                 min_ts = m.startTime
+            
             min_ts -= 3600
 
             plan_end = m.startTime + round(m.distance/m.speed)
             if (plan_end > max_ts):
-                max_ts = plan_end + 3600
+                max_ts = plan_end
 
         data = []
         # MUST be sorted by start time
@@ -683,13 +688,13 @@ class Autoranker(object):
         # print(json.dumps(moves, sort_keys=True, indent=4))
         ps = {}
         for m in moves:
-            if m['distance'] == 0:
-                continue
             cur_x = m['start']
             ps[cur_x] = ps.get(cur_x, 0) + m['speed']
             cur_x += m['moving_time']
             ps[cur_x] = ps.get(cur_x, 0) - m['speed']
 
+        print(repr(moves))
+        print(repr(ps))
         cur_speed = 0
         for x in sorted(ps, reverse=False):
             cur_speed += ps[x]
@@ -705,22 +710,35 @@ class Autoranker(object):
         cur_x = 0
         cur_rank = 0
         cur_speed = 0
+        first = True
         for x in sorted(ps, reverse=False):
+            if first == True:
+                cur_x = x 
+                first = False
+            #    xa.append(round(cur_x))
+            #    ya.append(round(cur_rank))
+
             delta_x = x - cur_x
             delta_rank = delta_x * ps[x]
+            print("delta_rank: {}, delta_x: {}, speed: {}".format(delta_rank, delta_x, ps[x]))
 
             cur_rank += delta_rank
             cur_x += delta_x
-            xa.append(cur_x)
-            ya.append(cur_rank)
+            xa.append(round(cur_x))
+            ya.append(round(cur_rank))
+
 
         # patch rank
         diff = last_rank - cur_rank
         ya = [(r + diff) for r in ya]
-
+ 
+        # xa.append(max_ts)
+        # ya.append(last_rank)
+       
         for x,y in zip(xa, ya):
             x_series.append(x)
-            y_series.append(round(y/1000000000000000000))
-       
+            y_series.append(round(y))
+            print("{}, {}".format(x, round(y)))
+        return(xa,ya)
         return(x_series, y_series)
 
