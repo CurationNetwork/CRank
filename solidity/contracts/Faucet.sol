@@ -15,10 +15,10 @@ contract Faucet {
 
     StandardToken token;
     Admin accessContract;
-    mapping (address => uint) lastFaucets;
+    mapping (bytes32 => bool) codeHashes;
+    mapping (byte => bool) allowedChars;
 
     uint public faucetSize;
-    uint public faucetRate;
 
 
     constructor(address accessContractAddress) public {
@@ -52,41 +52,69 @@ contract Faucet {
         return token.balanceOf(this);
     }
 
-    function getLastFaucet(address target)
-        view
-        public
-        returns (uint)
-    {
-        return lastFaucets[target];
-    }
 
-
-
-    function setFaucetRate(uint newRate)
+    function setCharset(string charset)
         public
         onlyOwner
     {
-        faucetRate = newRate;
+        bytes memory str = bytes(charset);
+
+        for (uint i = 0; i < str.length; ++i) {
+            allowedChars[str[i]] = true;
+        }
+    }
+
+    function setCodeHashes(bytes32[] hashes)
+        public
+        onlySuperuser
+    {
+        for (uint i = 0; i < hashes.length; ++i) {
+            codeHashes[hashes[i]] = true;
+        }
     }
 
     function setFaucetSize(uint newSize)
         public
-        onlyOwner
+        onlySuperuser
     {
         faucetSize = newSize;
     }
 
-    function faucet()
-        public
+
+    function checkCode(string code)
+        view
+        returns (bool)
     {
-        if (!accessContract.isSuperuser(msg.sender)) {
-            require(lastFaucets[msg.sender].add(faucetRate) < now, "faucet rate limit");
+        bytes memory str = bytes(code);
+
+        if (str.length != 7)
+            return false;
+
+        for (uint i = 0; i < str.length; ++i) {
+            if (!allowedChars[str[i]])
+                return false;
         }
 
+        return codeHashes[sha3(code)];
+    }
+
+    function faucet(string code)
+        public
+    {
+        require(checkCode(code));
         require(faucetSize <= getBalance(), "faucet balance not enough");
 
-        lastFaucets[msg.sender] = now;
+        delete codeHashes[sha3(code)];
+
         require(token.transfer(msg.sender, faucetSize));
         emit FaucetSended(msg.sender, faucetSize);
+    }
+
+    function destruct()
+        public
+        onlyOwner
+    {
+        require(token.transfer(msg.sender, getBalance()));
+        selfdestruct(msg.sender);
     }
 }

@@ -11,8 +11,9 @@ let rankingParams = [web3.toWei(0.05), 30, 30, web3.toWei(0)];
 let votingParams = [2, 100, 100, 2, 100];
 
 let totalSupply = web3.toWei(1000000);
+let faucetCharset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 let faucetSize = web3.toWei(1000);
-let faucetRate = 3600;
+
 
 module.exports = async function(deployer) {
     let voting, ranking, faucet, admin, token;
@@ -55,13 +56,13 @@ module.exports = async function(deployer) {
     }).then(async function () {
         console.log('Faucet inited');
 
-        return faucet.setFaucetRate(faucetRate);
-    }).then(async function () {
-        console.log('Faucet rate');
-
         return faucet.setFaucetSize(faucetSize);
     }).then(async function () {
         console.log('Faucet size');
+
+        return faucet.setCharset(faucetCharset);
+    }).then(async function () {
+        console.log('Faucet charset');
 
         return token.transfer(faucet.address, totalSupply);
     }).then(async function () {
