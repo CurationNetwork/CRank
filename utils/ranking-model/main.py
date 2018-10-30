@@ -8,19 +8,42 @@ import argparse
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 
+import sha3
+from ecdsa import SigningKey, SECP256k1
 import re
 import json
 import hashlib
 import os.path
 import random
-# import numpy as np
+
+from RegistryModel import RegistryModel, Curator, Dapp
 
 
 def dd(data):
     print(json.dumps(data, indent=4, sort_keys=True))
 
+
+def generate_keypair_and_address():
+    priv = SigningKey.generate(curve=SECP256k1)
+    pub = priv.get_verifying_key().to_string()
+    keccak = sha3.keccak_256()
+    keccak.update(pub)
+    addr_str = keccak.hexdigest()[24:]
+    out = ''
+    addr = addr_str.lower().replace('0x', '')
+    keccak.update(addr.encode('ascii'))
+    hash_addr = keccak.hexdigest()
+    for i, c in enumerate(addr):
+        if int(hash_addr[i], 16) >= 8:
+            out += c.upper()
+        else:
+            out += c
+    address = '0x' + out
+    return {'private_key': priv.to_string().hex(), 'public_key': pub.hex(), 'address': address}
+
+
 def get_config(args):
-    return {
+    config = {
         "curator_types": {
             'whale': 0.1,
             'user': 0.9,
@@ -28,87 +51,49 @@ def get_config(args):
         "vote_power": 10
     }
 
+    if (args.ranking_contract):
+        config['ranking_contract'] = args.ranking_contract
 
-class Curator(object):
-    def __init__(self, id):
-        self.id = id
-        self.type = 'user'
-        self.balance = 1000
-        self.stats = {"profit": 0.0}
+    if (args.keys_file):
+        config['accounts'] = json.load(args.keys_file)
 
-    def __repr__(self):
-        return "(Curator[{}], {}, balance: {}, profit: {})".format(self.id, self.type, self.balance, self.stats['profit'])
-
-    def vote_on_dapp(self, dapp, impulse):
-        if (dapp.voting_state == 'none'):
-            dapp.commits[self.id] = impulse
-            dapp.voting_state = 'commit'
-            return None
-
-        if (dapp.voting_state == 'commit'):
-            dapp.commits[self.id] = impulse
-            if (random.uniform(0,1) <  0.2):
-                dapp.voting_state = 'reveal'
-            return None
-
-            
-        if (dapp.voting_state == 'reveal'):
-            if dapp.commits.get(self.id) is None:
-                return None
-            dapp.reveals[self.id] = dapp.commits[self.id]
-            if (random.uniform(0,1) <  0.2):
-                dapp.voting_state = 'finish'
-            return None
- 
-        if (dapp.voting_state == 'finish'):
-            final_impulse = 0
-            for vid in dapp.reveals:
-                final_impulse += dapp.reveals[vid]
-
-            dapp.rank += final_impulse
-            dapp.commits = {}
-            dapp.reveals = {}
-            dapp.voting_state = 'none'
-            return None
-
-
-class Dapp(object):
-     def __init__(self, id):
-        self.id = id
-        self.name = 'dapp' + str(round(random.random()))
-        self.rank = round(random.random())
-        self.voting_state = 'none'
-        self.commits = {}
-        self.reveals = {}
-        self.rewards = {}
-
-        self.beauty = random.uniform(0,1)
-
-     def __repr__(self):
-        return "(DApp[{}], {}, rank: {}, beauty: {}, voting: {})".format(self.id, self.name, self.rank, self.beauty, self.voting_state)
+    return config
 
 
 def main(arguments):
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    # parser.add_argument('-fff', '--file', help="File", type=argparse.FileType('r'))
+    parser.add_argument('-r', '--ranking-contract', help="Ranking contract addr", type=str)
+    parser.add_argument('-k', '--keys-file', required=True, help="File with keys and addresses", type=argparse.FileType('r'))
+    parser.add_argument('--gen-deploy-command', help="generate ganache cli command", type=bool)
+
     args = parser.parse_args(arguments)
     config = get_config(args)
 
-    users = []
-    for i in range(1,5):
-        users.append(Curator(i))
-
-    dapps = []
-    for i in range(1,5):
-        dapps.append(Dapp(i))
-
-
-    for i in range(1,400):
-        random.choice(users).vote_on_dapp(random.choice(dapps), config['vote_power'])
+    if (args.gen_deploy_command):
+        cmd = "ganache-cli"
+        accs = []
+        for creds in config['accounts']:
+            accs.append("--account=\"0x{},0xFFFFFFFFFFFFFFFF\"".format(creds['private_key']))
+        print(cmd + ' ' + " ".join(accs) + " -l 7000000000000000000")
+        
+        return 0
 
 
-    print(repr(dapps))
+    # Registry model creates subprocess (ganache-cli with pre-defined users ant ether balances)
+    # after using RegistryModel stops ganache-cli process
+    with RegistryModel(config) as model:
+        model = RegistryModel(config);
+
+        for i in range(1,40):
+            user_id = model.get_random_user_id()
+            model.user_decide_and_vote(user_id)
+
+        model.finish_all_votings()
+
+
+
+
 if __name__ == '__main__':
     start = time.time()
     sys.exit(main(sys.argv[1:]))
