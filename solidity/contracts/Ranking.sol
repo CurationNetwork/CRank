@@ -11,6 +11,15 @@ contract Ranking {
 
     using SafeMath for uint;
 
+    event ItemAdded(
+        uint itemId,
+        address owner
+    );
+
+    event ItemRemoved(
+        uint itemId,
+        address owner
+    );
 
     event MovingStarted(
         uint itemId,
@@ -45,6 +54,7 @@ contract Ranking {
         uint lastRank;
         uint balance;
         uint votingId;
+        uint idx;
         uint[] movingsIds;
     }
 
@@ -63,6 +73,8 @@ contract Ranking {
     Admin accessContract;
     ERC20 tokenContract;
 
+    address public tcrContractAddress;
+
 
     /* constants */
     uint public initialMovingSpeed;
@@ -75,14 +87,16 @@ contract Ranking {
         accessContract = Admin(accessContractAddress);
     }
 
-    function init(address votingContractAddress, address tokenContractAddress, uint initialMovingSpeed_,
-                uint currentCommitTtl_, uint currentRevealTtl_, uint initialAvgStake_
+    function init(address votingContractAddress, address tcrContractAddress_, address tokenContractAddress,
+                uint initialMovingSpeed_, uint currentCommitTtl_, uint currentRevealTtl_, uint initialAvgStake_
     )
         public
         onlyOwner
     {
         votingContract = Voting(votingContractAddress);
         tokenContract = ERC20(tokenContractAddress);
+
+        tcrContractAddress = tcrContractAddress_;
 
         initialMovingSpeed = initialMovingSpeed_;
 
@@ -124,6 +138,10 @@ contract Ranking {
         _;
     }
 
+    modifier onlyForTcr {
+        require(tcrContractAddress == msg.sender);
+        _;
+    }
 
     /* VIEW FUNCTIONS */
     function getItemState(uint _itemId)
@@ -270,38 +288,6 @@ contract Ranking {
         );
     }
 
-
-    /* Only admin functions (only for testing period) */
-    function newItemsWithRanks(uint[] _ids, uint[] _ranks)
-        public
-        onlySuperuser
-    {
-        require(_ids.length == _ranks.length);
-
-        for (uint i = 0; i < _ids.length; i++) {
-            Item storage item = Items[_ids[i]];
-            require(item.owner == address(0));
-
-            ItemsIds.push(_ids[i]);
-            item.owner = msg.sender;
-            item.lastRank = _ranks[i];
-
-            avgStake = Helper.calculateNewAvgStake(avgStake, _ranks[i], stakesCounter++);
-
-            if (maxRank < _ranks[i])
-                maxRank = _ranks[i];
-        }
-    }
-
-    function setItemLastRank(uint _itemId, uint _rank)
-        public
-        onlySuperuser
-        onlyExistItem(_itemId)
-    {
-        Item storage item = Items[_itemId];
-        item.lastRank = _rank;
-    }
-
     function setUnstakeSpeed(uint _speed)
         public
         onlySuperuser
@@ -319,18 +305,41 @@ contract Ranking {
 
 
     /* LISTING FUNCTIONS */
-    function newItem(uint _id)
+    function newItem(uint _id, uint _initialRank, address _owner)
         public
-        onlySuperuser
+        onlyForTcr
         onlyNotExistItem(_id)
     {
         Item storage item = Items[_id];
         ItemsIds.push(_id);
 
-        item.owner = msg.sender;
+        item.owner = _owner;
+        item.id = _id;
+        item.lastRank = _initialRank;
+        item.idx = ItemsIds.length - 1;
+
+        avgStake = Helper.calculateNewAvgStake(avgStake, _initialRank, stakesCounter++);
+
+        emit ItemAdded(item.id, item.owner);
     }
 
-    function chargeBalance(uint _itemId, uint _numTokens)
+    function removeItem(uint _id)
+        public
+        onlyForTcr
+        onlyExistItem(_id)
+    {
+        removeAllMovings(_id);
+
+        ItemsIds[Items[_id].idx] = ItemsIds[ItemsIds.length - 1];
+        ItemsIds.length--;
+
+        emit ItemRemoved(Items[_id].id, Items[_id].owner);
+
+        require(send(Items[_id].owner, Items[_id].balance));
+        delete Items[_id];
+    }
+
+    function chargeBounty(uint _itemId, uint _numTokens)
         public
         onlyItemOwner(_itemId)
     {
@@ -441,14 +450,32 @@ contract Ranking {
 
                 emit MovingRemoved(_itemId, moving.votingId, item.movingsIds[i]);
 
-                delete Movings[item.movingsIds[i]];
                 votingContract.removeVoting(moving.votingId);
+                delete Movings[item.movingsIds[i]];
 
                 item.movingsIds[i] = item.movingsIds[item.movingsIds.length - 1];
                 item.movingsIds.length--;
                 i--;
             }
         }
+    }
+
+    function removeAllMovings(uint _itemId)
+        public
+    {
+        Item storage item = Items[_itemId];
+
+        for (uint i = 0; i < item.movingsIds.length; ++i) {
+            Moving storage moving = Movings[item.movingsIds[i]];
+
+            unstakeForAllVoters(moving.votingId);
+
+            emit MovingRemoved(_itemId, moving.votingId, item.movingsIds[i]);
+
+            votingContract.removeVoting(moving.votingId);
+            delete Movings[item.movingsIds[i]];
+        }
+        item.movingsIds.length = 0;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -482,26 +509,18 @@ contract Ranking {
         }
     }
 
-    event DebugLoose (address voter, uint stake);
-    event DebugWin (address voter, uint reward);
-    event DebugLength (uint l, uint votingId);
-
     function sendPrizesOrUnstake(uint _votingId)
         internal
     {
         address[] memory voters = votingContract.getVoters(_votingId);
 
-        emit DebugLength(voters.length, _votingId);
-
         for (uint i = 0; i < voters.length; ++i) {
             if (votingContract.isWinner(_votingId, voters[i])) {
                 uint reward = votingContract.claimReward(_votingId, voters[i]);
-                emit DebugWin(voters[i], reward);
                 require(send(voters[i], reward));
             }
             else {
                 uint stake = votingContract.unstakeAll(_votingId, voters[i]);
-                emit DebugLoose(voters[i], stake);
                 require(send(voters[i], stake));
             }
         }

@@ -29,11 +29,12 @@ contract('Ranking', function(accounts) {
     let commissions = voters.map(() => new BigNumber(0));
     let initialBalance = toWei(10000);
     let votingParams = [2, 100, 100, 2, 100];
-    let rankingParams = [ toWei(1), 180, 180, toWei(0) ];
+    let rankingParams = [toWei(1), 180, 180, toWei(0)];
 
     let defaultRanks = [toWei(300), toWei(250), toWei(200)];
 
     describe('full', function() {
+
         before(async function() {
             await advanceBlock();
             this.token = await Token.new();
@@ -51,14 +52,16 @@ contract('Ranking', function(accounts) {
 
             await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, accounts[0], this.token.address, ...rankingParams);
             await this.voting.init(this.ranking.address, ...votingParams);
         });
 
         let startTime = null;
 
         it('add items', async function() {
-            await this.ranking.newItemsWithRanks([1, 2, 3], defaultRanks);
+            await this.ranking.newItem(1, defaultRanks[0], accounts[0]);
+            await this.ranking.newItem(2, defaultRanks[1], accounts[0]);
+            await this.ranking.newItem(3, defaultRanks[2], accounts[0]);
 
             (await this.ranking.getItemsWithRank.call())[0].length.should.be.equal(3);
             (await this.ranking.getItemsWithRank.call())[1].length.should.be.equal(3);
@@ -212,10 +215,12 @@ contract('Ranking', function(accounts) {
 
             await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, accounts[0], this.token.address, ...rankingParams);
             await this.voting.init(this.ranking.address, ...votingParams);
 
-            await this.ranking.newItemsWithRanks([1, 2, 3], defaultRanks);
+            await this.ranking.newItem(1, defaultRanks[0], accounts[0]);
+            await this.ranking.newItem(2, defaultRanks[1], accounts[0]);
+            await this.ranking.newItem(3, defaultRanks[2], accounts[0]);
         });
 
         it('fixed commissions', async function () {
@@ -261,10 +266,12 @@ contract('Ranking', function(accounts) {
 
             await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, accounts[0], this.token.address, ...rankingParams);
             await this.voting.init(this.ranking.address, ...votingParams);
 
-            await this.ranking.newItemsWithRanks([1, 2, 3], defaultRanks);
+            await this.ranking.newItem(1, defaultRanks[0], accounts[0]);
+            await this.ranking.newItem(2, defaultRanks[1], accounts[0]);
+            await this.ranking.newItem(3, defaultRanks[2], accounts[0]);
         });
 
         it('commit', async function () {
@@ -300,10 +307,12 @@ contract('Ranking', function(accounts) {
 
             await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, accounts[0], this.token.address, ...rankingParams);
             await this.voting.init(this.ranking.address, ...votingParams);
 
-            await this.ranking.newItemsWithRanks([1, 2, 3], defaultRanks);
+            await this.ranking.newItem(1, defaultRanks[0], accounts[0]);
+            await this.ranking.newItem(2, defaultRanks[1], accounts[0]);
+            await this.ranking.newItem(3, defaultRanks[2], accounts[0]);
         });
 
         it('2 commits', async function () {
@@ -347,10 +356,12 @@ contract('Ranking', function(accounts) {
 
             await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, accounts[0], this.token.address, ...rankingParams);
             await this.voting.init(this.ranking.address, ...votingParams);
 
-            await this.ranking.newItemsWithRanks([1, 2, 3], defaultRanks);
+            await this.ranking.newItem(1, defaultRanks[0], accounts[0]);
+            await this.ranking.newItem(2, defaultRanks[1], accounts[0]);
+            await this.ranking.newItem(3, defaultRanks[2], accounts[0]);
         });
 
         it('commits', async function () {
@@ -410,10 +421,12 @@ contract('Ranking', function(accounts) {
 
             await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, accounts[0], this.token.address, ...rankingParams);
             await this.voting.init(this.ranking.address, ...votingParams);
 
-            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(1000), toWei(30)]);
+            await this.ranking.newItem(1, toWei(90), accounts[0]);
+            await this.ranking.newItem(2, toWei(1000), accounts[0]);
+            await this.ranking.newItem(3, toWei(30), accounts[0]);
 
             let comm1 = await this.helper.getCommitHash(0, toWei(500), 1);
             await this.ranking.voteCommit(2, comm1, {from: voters[0]});
@@ -474,10 +487,12 @@ contract('Ranking', function(accounts) {
 
             await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
 
-            await this.ranking.init(this.voting.address, this.token.address, ...rankingParams);
+            await this.ranking.init(this.voting.address, accounts[0], this.token.address, ...rankingParams);
             await this.voting.init(this.ranking.address, ...votingParams);
 
-            await this.ranking.newItemsWithRanks([1, 2, 3], [toWei(90), toWei(1000), toWei(30)]);
+            await this.ranking.newItem(1, toWei(90), accounts[0]);
+            await this.ranking.newItem(2, toWei(1000), accounts[0]);
+            await this.ranking.newItem(3, toWei(30), accounts[0]);
 
             let comm1 = await this.helper.getCommitHash(0, toWei(600), 1);
             await this.ranking.voteCommit(2, comm1, {from: voters[0]});
@@ -516,4 +531,97 @@ contract('Ranking', function(accounts) {
             rank.should.be.bignumber.equal(0);
         });
     });
+
+
+    describe('remove (without movings)', function () {
+        before(async function() {
+            await advanceBlock();
+            this.token = await Token.new();
+            this.admin = await Admin.new();
+            this.helper = await Helper.new();
+            this.voting = await Voting.new(this.admin.address);
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
+
+            await this.token.balanceOf(voters[1]).should.eventually.be.bignumber.equal(initialBalance);
+
+            await this.ranking.init(this.voting.address, accounts[0], voters[3], this.token.address, ...rankingParams);
+            await this.voting.init(this.ranking.address, ...votingParams);
+        });
+
+        it('add', async function () {
+            await this.ranking.newItem(1, toWei(90), voters[0]);
+            await this.ranking.newItem(2, toWei(50), voters[1]);
+            await this.ranking.newItem(3, toWei(70), voters[2]);
+
+            (await this.ranking.getItemsWithRank())[0].length.should.be.equal(3);
+        });
+
+        it('remove', async function () {
+            await this.ranking.removeItem(2);
+
+            await expectThrow(this.ranking.getItem(2));
+            (await this.ranking.getItemsWithRank())[0].length.should.be.equal(2);
+        });
+    });
+
+
+    describe('remove (with movings)', function () {
+        before(async function() {
+            await advanceBlock();
+            this.token = await Token.new();
+            this.admin = await Admin.new();
+            this.helper = await Helper.new();
+            this.voting = await Voting.new(this.admin.address);
+            this.ranking = await Ranking.new(this.admin.address);
+
+            await this.token.transfer(voters[0], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[0]});
+            await this.token.transfer(voters[1], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[1]});
+            await this.token.transfer(voters[2], initialBalance);
+            await this.token.approve(this.ranking.address, initialBalance, {from: voters[2]});
+
+            this.voterBalance = await this.token.balanceOf(voters[0]);
+
+            await this.ranking.init(this.voting.address, accounts[0], voters[3], this.token.address, ...rankingParams);
+            await this.voting.init(this.ranking.address, ...votingParams);
+
+            await this.ranking.newItem(1, toWei(90), voters[0]);
+            await this.ranking.newItem(2, toWei(50), voters[1]);
+            await this.ranking.newItem(3, toWei(70), voters[2]);
+        });
+
+        it('voting', async function () {
+            let comm1 = await this.helper.getCommitHash(0, toWei(500), 1);
+
+            let comm = await this.ranking.getFixedCommission(2);
+
+            await this.ranking.voteCommit(2, comm1, {from: voters[0]});
+            let commitTime = await latestTime();
+
+            comm.add(await this.ranking.getDynamicCommission(2, toWei(100)));
+
+            await increaseTimeTo(commitTime + duration.seconds(181));
+            await this.ranking.voteReveal(2, 0, toWei(500), 1, {from: voters[0]});
+
+            await increaseTimeTo(commitTime + duration.seconds(361));
+            await this.ranking.finishVoting(2, {from: voters[0]});
+        });
+
+        it('remove', async function () {
+            await this.ranking.removeItem(2);
+
+            await expectThrow(this.ranking.getItem(2));
+            (await this.ranking.getItemsWithRank())[0].length.should.be.equal(2);
+
+            await this.token.balanceOf(voters[0]).should.eventually.be.bignumber.equal(this.voterBalance);
+        });
+    })
 });

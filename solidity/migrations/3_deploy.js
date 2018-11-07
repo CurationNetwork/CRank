@@ -14,8 +14,10 @@ let totalSupply = web3.toWei(1000000);
 let faucetCharset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 let faucetSize = web3.toWei(1000);
 
+let tcrAddress = '0x00'; //TODO set tcr contract address
 
-module.exports = async function(deployer) {
+
+module.exports = async function(deployer, network, accounts) {
     let voting, ranking, faucet, admin, token;
 
     deployer.then(function() {
@@ -44,7 +46,7 @@ module.exports = async function(deployer) {
         faucet = instance;
         console.log('Faucet:', faucet.address);
 
-        return ranking.init(voting.address, token.address, ...rankingParams);
+        return ranking.init(voting.address, tcrAddress, token.address, ...rankingParams);
     }).then(async function () {
         console.log('Ranking inited');
 
