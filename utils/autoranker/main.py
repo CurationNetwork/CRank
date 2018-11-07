@@ -31,12 +31,22 @@ from autoranker import Autoranker, INIT_RANK
 
 def get_config(args):
     config = {
-        # "eth_http_node": "https://rinkeby.infura.io/v3/1474ceef2da44edbac41a2efd66ee882",
-        "eth_http_node": "http://10.100.11.24:8545",
+        "eth_http_node": "https://rinkeby.infura.io/v3/1474ceef2da44edbac41a2efd66ee882",
+        # "eth_http_node": "http://10.100.11.24:8545",
 
-        "tcrank_address": "0xdd5c07c484778ae52b5e60999bf625a998c265b4",
-        "tcrank_deploy_block_no": "3068333",
-        "faucet_address": "0x29b914a61a0ba1d6f24d55406795917f954510b5",
+
+        # "tcrank_address": "0x6a91ff9271406d421c75e6b6dd04fb1f7857cb30",
+        # "tcrank_deploy_block_no": "3148631",
+        # "faucet_address": "0xf41c3d0e08b10930ae85144a7b98231bc1f22e21",
+
+        # "tcrank_address": "0xdd5c07c484778ae52b5e60999bf625a998c265b4",
+
+        "helper_address": "0x8266a0b43c171e645bb56f8a76c4e6ef4b5fad5d",
+        
+        # LAST
+        "tcrank_address": "0xb6c77b0365a3f5830579dea88126d3a77f4e8587",
+        "tcrank_deploy_block_no": "3164581",
+        "faucet_address": "0x3171fa7390f083fa40a7184b0a51e344c4f83d23",
 
         "dapps_import_url": "https://stage.curation.network/api/store/projects/export",
     }
@@ -46,6 +56,9 @@ def get_config(args):
 
     with open("../../solidity/smartz/faucet.abi") as json_data:
         config['faucet_abi'] = json.load(json_data)
+
+    with open("../../solidity/smartz/helper.abi") as json_data:
+        config['helper_abi'] = json.load(json_data)
 
     if (args.keys_file):
         config['keys_file'] = args.keys_file.name
@@ -115,28 +128,47 @@ def main(arguments):
         id = str(d.get('id'))
         dapps[id] = { 'id': id,
                       'name': d.get('name'),
-                      'rank': str(INIT_RANK)  #'300000000000000000000' TEMP
+                      'their_rank': d.get('rank')
                     }
 
     # now create autoranker object and pass contract and account to it. Any further logic must be implemented in Autoranker class
     autoranker = Autoranker(config, dapps)
-    
+  
+    max_rank = 0
+
+    for dapp_id in autoranker.dapps:
+        d = autoranker.dapps[dapp_id]
+        if d['their_rank'] > max_rank:
+            max_rank = d['their_rank']
+
+    avg_stake = INIT_RANK
+    rank_step = avg_stake * 2 / max_rank # take max rank and make all dapps_rank proportional
+    for dapp_id in autoranker.dapps:
+        d = autoranker.dapps[dapp_id]
+        autoranker.dapps[dapp_id]['rank'] = round(autoranker.dapps[dapp_id]['their_rank'] * rank_step)
+        # print("rank of item [{}]: {} ({}), calculated from max rank: {} ({}) and their_rank: {}"
+        #       .format(dapp_id,
+        #               autoranker.dapps[dapp_id]['rank'],
+        #               round(autoranker.dapps[dapp_id]['rank'] / 1e18),
+        #               avg_stake * 2, round(avg_stake * 2 / 1e18),
+        #               autoranker.dapps[dapp_id]['their_rank']))
+
+
     if (args.show_ranking == True):
         autoranker.show_ranking()
         return
 
+    single_dapp_id = int(args.dapp_id) if args.dapp_id is not None else None
     if (args.ranking_history == True):
-        single_dapp_id = args.dapp_id
         output_file = args.ranking_history_output_png
         autoranker.ranking_history(single_dapp_id, output_file)
         return
 
     if (args.sync_dapps == True):
-        autoranker.load_dapps_to_contract()
+        autoranker.load_dapps_to_contract(single_dapp_id)
         return
 
     if (args.random_play == True):
-        single_dapp_id = args.dapp_id
         autoranker.start_moving_dapps(single_dapp_id)
         return
 
