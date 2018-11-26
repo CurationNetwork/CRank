@@ -15,6 +15,7 @@ import datetime
 import hashlib
 import os.path
 import sys
+from datetime import datetime
 
 import web3
 from web3 import Web3, HTTPProvider, TestRPCProvider
@@ -476,7 +477,6 @@ class Autoranker(object):
         for dapp_id in self.dapps:
             dapp = self.dapps[dapp_id]
             
-
             if single_dapp_id is not None:
                 if str(single_dapp_id) != str(dapp_id):
                     continue
@@ -486,11 +486,12 @@ class Autoranker(object):
             existing = self.get_dapp_from_contract(dapp_id)
             if existing is not None:
                 logger.info("DApp [{}] {}, already exists in contract with rank: {}, local rank: {}".format(dapp_id, dapp.get('name'), existing['rank'], dapp['rank']))
-                if (str(dapp['rank']) != str(existing['rank'])):
-                    logger.info("DApp [{}] {}, need to update rank from {} to {}".format(dapp_id, dapp.get('name'), existing['rank'], dapp['rank']))
-                    rank_updates.append([dapp_id, dapp['rank'], existing['rank']])
+                # DISABLE RANK UPDATES
+                # if (str(dapp['rank']) != str(existing['rank'])):
+                #     logger.info("DApp [{}] {}, need to update rank from {} to {}".format(dapp_id, dapp.get('name'), existing['rank'], dapp['rank']))
+                #     rank_updates.append([dapp_id, dapp['rank'], existing['rank']])
                 continue
-
+            
             new_dapps_ids.append(dapp_id)
 
         i = 0
@@ -711,7 +712,7 @@ class Autoranker(object):
         # ya.append(last_rank)
        
         for x,y in zip(xa, ya):
-            x_series.append(round(x))
+            x_series.append(datetime.utcfromtimestamp(round(x)))
             y_series.append(round(y))
             # print("{}, {}".format(x, round(y)))
         return(x_series, y_series)

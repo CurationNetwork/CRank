@@ -12,6 +12,7 @@
     "chai-bignumber": "^2.0.2",
     "ethereumjs-abi": "^0.6.5",
     "ethereumjs-util": "^5.2.0",
+    "ethpm": "0.0.16",
     "ganache-cli": "6.1.0",
     "truffle": "^4.1.13",
     "truffle-hdwallet-provider": "0.0.6",

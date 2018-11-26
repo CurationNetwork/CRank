@@ -15,6 +15,11 @@ import json
 import hashlib
 import os.path
 import random
+import subprocess
+from subprocess import TimeoutExpired
+import os
+import signal
+import shlex
 
 
 def dd(data):
@@ -49,6 +54,10 @@ class Dapp(object):
         return "(DApp[{}], {}, rank: {}, beauty: {}, voting: {})".format(self.id, self.name, self.rank, self.beauty, self.voting_state)
 
 
+def log_subprocess_output(process_name, pipe):
+    for line in iter(pipe.readline, b''): # b'\n'-separated lines
+        print('[{}]: {}'.format(process_name, line))
+
 class RegistryModel(object):
 
     def __init__(self, config):
@@ -64,13 +73,82 @@ class RegistryModel(object):
         self.dapps = {}
         for i in range(N_dapps):
             self.dapps[i] = Dapp(i)
+
+        self.ganache_proc = None
+        self.ganache_pid = None
+        self.ganache_stdout = None
+        self.ganache_stderr = None
     
     def __enter__(self):
-        print("enter");
-        pass
+        print("[DEBUG] Running ganache process: {} (+accounts part)"
+              .format(" ".join(self.config['ganache_cmd'])))
+        self.ganache_proc = subprocess.Popen(self.config['ganache_cmd'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        with self.ganache_proc.stdout:
+            for line in iter(self.ganache_proc.stdout.readline, b''): # b'\n'-separated lines
+                print('[ganache]: {}'.format(str(line)))
+                if str(line).find('Listening on') != -1:
+                    print("Ganache started, trying to deploy contracts")
+                    break;
+            
+            self.migrate_proc = subprocess.Popen(self.config['migrate_cmd'], cwd=self.config['migrate_cwd'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            with self.migrate_proc.stdout:
+                for line in iter(self.migrate_proc.stdout.readline, b''): # b'\n'-separated lines
+                    print('[migration]: {}'.format(str(line)))
+
+            self.migrate_proc.wait()
+
+
+    # exitcode = self.ganache_proc.wait()
+  
+#        try:
+#            self.ganache_stdout, self.ganache_stderr = self.ganache_proc.communicate(timeout=15)
+#            self.ganache_pid = self.ganache_proc.pid 
+#        except TimeoutExpired as e:
+#            print("[DEBUG] Timeout exception when running ganache process: {} (+accounts part): {}"
+#                  .format(self.config['ganache_cmd'][0], repr(e)))
+#            self.ganache_proc.kill()
+#            self.ganache_stdout, self.ganache_stderr = self.ganache_proc.communicate(timeout=15)
+#        except KeyboardInterrupt:
+#            print("[DEBUG] Keyboard interrupt ganache process: {} (+accounts part)"
+#                  .format(self.config['ganache_cmd'][0]))
+#            try:
+#                self.ganache_proc.terminate()
+#            except OSError:
+#                pass
+#            self.ganache_proc.wait()
+#        except Exception as e:
+#            print("[Error] Exception running ganache process: {} (+accounts part): {}"
+#                  .format(self.config['ganache_cmd'][0], repr(e)))
+#            self.ganache_proc.kill()
+#            self.ganache_stdout, self.ganache_stderr = self.ganache_proc.communicate(timeout=15)
+#          
+#        print(self.ganache_stderr)
+#
+        # self.deploy_contracts()
+        
+        return True
 
     def __exit__(self, exc_type, exc_value, traceback):
-        print("exit");
+        print("[DEBUG] Exit context of ganache process with PID: {}".format(self.ganache_pid))
+        self.ganache_proc.kill()
+        return True
+        # os.killpg(os.getpgid(self.ganache_pid), signal.SIGTERM)
+
+
+    def run_command_sync_display_output(self, command, workdir):
+        process = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE, cwd=workdir)
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(str(output.strip()))
+        rc = process.poll()
+        return rc
+
+    def deploy_contracts(self):
+        self.run_command_sync_display_output("truffle migrate --network development", "../../solidity/")
         pass
 
     def get_random_user_id(self):

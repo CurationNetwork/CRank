@@ -48,7 +48,7 @@ def get_config(args):
         "tcrank_deploy_block_no": "3164581",
         "faucet_address": "0x3171fa7390f083fa40a7184b0a51e344c4f83d23",
 
-        "dapps_import_url": "https://stage.curation.network/api/store/projects/export",
+        "dapps_import_url": "https://curation.network/api/store/projects/export",
     }
 
     with open("../../solidity/smartz/ranking.abi") as json_data:

@@ -51,9 +51,11 @@ def get_config(args):
         "vote_power": 10
     }
 
-    if (args.ranking_contract):
-        config['ranking_contract'] = args.ranking_contract
-
+    # [FIXME] temp shit
+    if (args.migrate_cmd):
+        config['migrate_cmd'] = args.migrate_cmd
+        config['migrate_cwd'] = args.migrate_cwd
+        
     if (args.keys_file):
         config['accounts'] = json.load(args.keys_file)
 
@@ -63,34 +65,38 @@ def get_config(args):
 def main(arguments):
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('-r', '--ranking-contract', help="Ranking contract addr", type=str)
+    parser.add_argument('--migrate-cmd', required=True, help="Ranking contract migration command", type=str)
+    parser.add_argument('--migrate-cwd', required=True, help="Ranking contract migration command working directory", type=str)
     parser.add_argument('-k', '--keys-file', required=True, help="File with keys and addresses", type=argparse.FileType('r'))
-    parser.add_argument('--gen-deploy-command', help="generate ganache cli command", type=bool)
+    # parser.add_argument('--gen-deploy-command', help="generate ganache cli command", type=bool)
 
     args = parser.parse_args(arguments)
     config = get_config(args)
+    
+    # can be a long array (because we add all accounts from file with keys
+    config['ganache_cmd'] = ["ganache-cli"]
 
-    if (args.gen_deploy_command):
-        cmd = "ganache-cli"
-        accs = []
-        for creds in config['accounts']:
-            accs.append("--account=\"0x{},0xFFFFFFFFFFFFFFFF\"".format(creds['private_key']))
-        print(cmd + ' ' + " ".join(accs) + " -l 7000000000000000000")
-        
-        return 0
+    accs = []
+    for creds in config['accounts']:
+        config['ganache_cmd'].append("--account=\"0x{},0xFFFFFFFFFFFFFFFF\"".format(creds['private_key']))
+    
+    config['ganache_cmd'].append("-l 7000000000000000000")
 
+    # print(" ".join(config['ganache_cmd']))
 
     # Registry model creates subprocess (ganache-cli with pre-defined users ant ether balances)
     # after using RegistryModel stops ganache-cli process
     with RegistryModel(config) as model:
         model = RegistryModel(config);
 
-        for i in range(1,40):
-            user_id = model.get_random_user_id()
-            model.user_decide_and_vote(user_id)
+        #for i in range(1,40):
+        #    user_id = model.get_random_user_id()
+        #    model.user_decide_and_vote(user_id)
 
-        model.finish_all_votings()
+        #model.finish_all_votings()
 
+    
+    sys.exit(0)
 
 
 
